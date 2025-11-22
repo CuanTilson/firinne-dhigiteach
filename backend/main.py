@@ -11,6 +11,8 @@ from backend.analysis.exif_forensics import exif_forensics
 from backend.analysis.ela import perform_ela
 from backend.analysis.jpeg_qtable import analyse_qtables
 from backend.analysis.noise_analysis import analyse_noise
+from backend.analysis.file_integrity import analyse_file_integrity
+
 from backend.inference.cnndetect_native import CNNDetectionModel
 from backend.explainability.gradcam import GradCAM
 from pathlib import Path
@@ -20,6 +22,9 @@ UPLOAD_DIR = Path("backend/uploaded_files")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 WEIGHTS = Path("vendor/CNNDetection/weights/blur_jpg_prob0.5.pth")
+Path("backend/generated/ela").mkdir(parents=True, exist_ok=True)
+Path("backend/generated/heatmaps").mkdir(parents=True, exist_ok=True)
+
 
 app = FastAPI(title="Fírinne Dhigiteach API")
 
@@ -66,6 +71,8 @@ async def detect_image_cnndetection(file: UploadFile = File(...)):
     with filepath.open("wb") as f:
         shutil.copyfileobj(file.file, f)
 
+    file_integrity = analyse_file_integrity(filepath)
+
     # 1. ML prediction
     result = cnndetector.predict(filepath)
     ml_prob = result["probability"]
@@ -95,7 +102,7 @@ async def detect_image_cnndetection(file: UploadFile = File(...)):
         or "iptc:compositeWithTrainedAlgorithmicMedia"
         in c2pa_info.get("digital_source_types", [])
         # Samsung Photo Assist
-        or "Photo assist" in c2pa_info.get("software_agents", [])
+        or "photo assist" in c2pa_info.get("software_agents", [])
     )
 
     # ELA analysis
@@ -110,6 +117,9 @@ async def detect_image_cnndetection(file: UploadFile = File(...)):
         anomaly["anomaly_score"],
         c2pa_info["overall_c2pa_score"],
         c2pa_ai_flag,
+        ela_info["ela_anomaly_score"],
+        noise_info["noise_anomaly_score"],
+        qtinfo["qtables_anomaly_score"],
     )
 
     # 6. GradCAM heatmap
@@ -124,6 +134,7 @@ async def detect_image_cnndetection(file: UploadFile = File(...)):
         "detector": "CNNDetection + GradCAM + Forensic Fusion + C2PA",
         "input_file": file.filename,
         "saved_path": str(filepath),
+        "file_integrity": file_integrity,
         "ml_prediction": {
             "probability": ml_prob,
             "label": result["label"],
@@ -145,6 +156,7 @@ async def detect_image_cnndetection(file: UploadFile = File(...)):
         },
         "jpeg_qtables": {
             "found": qtinfo["qtables_found"],
+            "qtables": qtinfo["qtables"],  # optional
             "anomaly_score": qtinfo["qtables_anomaly_score"],
         },
         "noise_residual": {

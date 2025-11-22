@@ -3,15 +3,21 @@ def fuse_forensic_scores(
     metadata_anomaly: float,
     c2pa_score: float,
     c2pa_ai_flag: bool,
+    ela_score: float,
+    noise_score: float,
+    qtable_score: float,
 ) -> dict:
     """
-    ml_prob: model probability the image is AI-generated (0-1)
-    metadata_anomaly: anomaly score from metadata analyser (0-1)
-    c2pa_score: 0-1 AI likelihood from C2PA (soft signals)
-    c2pa_ai_flag: True if C2PA explicitly indicates AI was used
+    Weighted fusion of:
+      - ML model probability
+      - EXIF/metadata anomaly score
+      - C2PA soft confidence
+      - ELA anomaly score
+      - Noise residual anomaly
+      - JPEG quantisation anomaly
     """
 
-    # Explicit C2PA AI signal
+    # Hard override: explicit AI from C2PA
     if c2pa_ai_flag:
         final_score = max(ml_prob, c2pa_score, 0.9)
         return {
@@ -20,9 +26,24 @@ def fuse_forensic_scores(
             "override": True,
         }
 
-    # Soft blend
-    final_score = (ml_prob * 0.7) + (metadata_anomaly * 0.1) + (c2pa_score * 0.2)
+    # Recommended weighting (total = 1.0)
+    w_ml = 0.55
+    w_meta = 0.10
+    w_c2pa = 0.10
+    w_ela = 0.10
+    w_noise = 0.10
+    w_q = 0.05
 
+    final_score = (
+        (ml_prob * w_ml)
+        + (metadata_anomaly * w_meta)
+        + (c2pa_score * w_c2pa)
+        + (ela_score * w_ela)
+        + (noise_score * w_noise)
+        + (qtable_score * w_q)
+    )
+
+    # Classification bands
     if final_score > 0.7:
         label = "likely_ai_generated"
     elif final_score < 0.3:
