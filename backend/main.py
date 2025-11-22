@@ -7,6 +7,7 @@ from backend.analysis.metadata_extractor import (
 from backend.analysis.c2pa_analyser import analyse_c2pa
 from backend.analysis.metadata_analyser import analyse_image_metadata
 from backend.analysis.forensic_fusion import fuse_forensic_scores
+from backend.analysis.exif_forensics import exif_forensics
 from backend.inference.cnndetect_native import CNNDetectionModel
 from backend.explainability.gradcam import GradCAM
 from pathlib import Path
@@ -69,6 +70,8 @@ async def detect_image_cnndetection(file: UploadFile = File(...)):
     # 2. Metadata extraction
     metadata = extract_image_metadata(filepath)
 
+    exif_result = exif_forensics(metadata)
+
     # 3. Metadata anomaly scoring
     anomaly = analyse_image_metadata(metadata)
 
@@ -113,6 +116,7 @@ async def detect_image_cnndetection(file: UploadFile = File(...)):
             "label": result["label"],
         },
         "metadata_anomalies": anomaly,
+        "exif_forensics": exif_result,
         # --- UPDATED C2PA OUTPUT ---
         "c2pa": {
             "has_c2pa": c2pa_info["has_c2pa"],
