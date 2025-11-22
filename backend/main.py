@@ -8,7 +8,7 @@ from backend.analysis.c2pa_analyser import analyse_c2pa
 from backend.analysis.metadata_analyser import analyse_image_metadata
 from backend.analysis.forensic_fusion import fuse_forensic_scores
 from backend.analysis.exif_forensics import exif_forensics
-from backend.analysis.ela import compute_ela_score
+from backend.analysis.ela import perform_ela
 from backend.analysis.jpeg_qtable import analyse_qtables
 from backend.analysis.noise_analysis import analyse_noise
 from backend.inference.cnndetect_native import CNNDetectionModel
@@ -98,7 +98,11 @@ async def detect_image_cnndetection(file: UploadFile = File(...)):
         or "Photo assist" in c2pa_info.get("software_agents", [])
     )
 
-    ela = compute_ela_score(filepath)
+    # ELA analysis
+    ela_output_path = Path("backend/generated/ela") / f"{uuid.uuid4().hex}_ela.png"
+    ela_info = perform_ela(
+        filepath, quality=90, scale_factor=20, save_path=ela_output_path
+    )
 
     # 5. Fuse into forensic score
     fused = fuse_forensic_scores(
@@ -148,9 +152,11 @@ async def detect_image_cnndetection(file: UploadFile = File(...)):
             "spectral_flatness": noise_info["spectral_flatness"],
             "anomaly_score": noise_info["noise_anomaly_score"],
         },
-        "ela": {
-            "ela_score": ela.get("ela_score"),
-            # leave out the array for now — we’ll convert it into an image later
+        "ela_analysis": {
+            "mean_error": ela_info["mean_error"],
+            "max_error": ela_info["max_error"],
+            "anomaly_score": ela_info["ela_anomaly_score"],
+            "ela_heatmap": ela_info["ela_image_path"],
         },
         "forensic_score": fused,
         "gradcam_heatmap": str(heatmap_path),
