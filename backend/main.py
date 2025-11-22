@@ -4,6 +4,8 @@ from backend.analysis.metadata_extractor import (
     extract_image_metadata,
     extract_video_metadata,
 )
+from backend.analysis.metadata_analyser import analyse_image_metadata
+from backend.analysis.forensic_fusion import fuse_forensic_scores
 from backend.inference.cnndetect_native import CNNDetectionModel
 from backend.explainability.gradcam import GradCAM
 from pathlib import Path
@@ -51,7 +53,7 @@ async def analyse_media(file: UploadFile = File(...)):
 @app.post("/detect/image/cnndetection")
 async def detect_image_cnndetection(file: UploadFile = File(...)):
     if not file.content_type.startswith("image/"):
-        raise HTTPException(status_code=400, detail="Please upload an image file.")
+        raise HTTPException(400, "Please upload an image file.")
 
     suffix = Path(file.filename).suffix or ".png"
     filepath = UPLOAD_DIR / f"{uuid.uuid4().hex}{suffix}"
@@ -59,10 +61,20 @@ async def detect_image_cnndetection(file: UploadFile = File(...)):
     with filepath.open("wb") as f:
         shutil.copyfileobj(file.file, f)
 
-    # 1. Run model prediction
+    # 1. ML prediction
     result = cnndetector.predict(filepath)
+    ml_prob = result["probability"]
 
-    # 2. Generate GradCAM
+    # 2. Metadata extraction
+    metadata = extract_image_metadata(filepath)
+
+    # 3. Metadata anomaly scoring
+    anomaly = analyse_image_metadata(metadata)
+
+    # 4. Fuse into forensic score
+    fused = fuse_forensic_scores(ml_prob, anomaly["anomaly_score"])
+
+    # 5. GradCAM
     heatmap_path = (
         Path("backend/generated/heatmaps") / f"{uuid.uuid4().hex}_gradcam.png"
     )
@@ -71,12 +83,15 @@ async def detect_image_cnndetection(file: UploadFile = File(...)):
     cam.generate(result["tensor"], filepath, heatmap_path)
 
     return {
-        "detector": "CNNDetection + GradCAM",
+        "detector": "CNNDetection + GradCAM + Forensic Fusion",
         "input_file": file.filename,
         "saved_path": str(filepath),
-        "prediction": {
-            "probability": result["probability"],
+        "ml_prediction": {
+            "probability": ml_prob,
             "label": result["label"],
         },
+        "metadata_anomalies": anomaly,
+        "forensic_score": fused,
         "gradcam_heatmap": str(heatmap_path),
+        "raw_metadata": metadata,  # optional
     }
