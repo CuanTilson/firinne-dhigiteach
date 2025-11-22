@@ -9,3 +9,4 @@ pymediainfo
 torch
 torchvision
 numpy
+c2pa-python

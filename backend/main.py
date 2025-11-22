@@ -4,6 +4,7 @@ from backend.analysis.metadata_extractor import (
     extract_image_metadata,
     extract_video_metadata,
 )
+from backend.analysis.c2pa_analyser import analyse_c2pa
 from backend.analysis.metadata_analyser import analyse_image_metadata
 from backend.analysis.forensic_fusion import fuse_forensic_scores
 from backend.inference.cnndetect_native import CNNDetectionModel
@@ -71,10 +72,31 @@ async def detect_image_cnndetection(file: UploadFile = File(...)):
     # 3. Metadata anomaly scoring
     anomaly = analyse_image_metadata(metadata)
 
-    # 4. Fuse into forensic score
-    fused = fuse_forensic_scores(ml_prob, anomaly["anomaly_score"])
+    # 4. C2PA / Content Credentials analysis
+    c2pa_info = analyse_c2pa(filepath)
 
-    # 5. GradCAM
+    # Decide if C2PA should override (Option 1)
+    c2pa_ai_flag = c2pa_info["has_c2pa"] and (
+        # High confidence from our heuristic
+        c2pa_info["overall_c2pa_score"] >= 0.95
+        # Explicit AI assertions
+        or len(c2pa_info["ai_assertions_found"]) > 0
+        # IPTC AI source type (this is the strongest possible AI signal)
+        or "iptc:compositeWithTrainedAlgorithmicMedia"
+        in c2pa_info.get("digital_source_types", [])
+        # Samsung Photo Assist
+        or "Photo assist" in c2pa_info.get("software_agents", [])
+    )
+
+    # 5. Fuse into forensic score
+    fused = fuse_forensic_scores(
+        ml_prob,
+        anomaly["anomaly_score"],
+        c2pa_info["overall_c2pa_score"],
+        c2pa_ai_flag,
+    )
+
+    # 6. GradCAM heatmap
     heatmap_path = (
         Path("backend/generated/heatmaps") / f"{uuid.uuid4().hex}_gradcam.png"
     )
@@ -83,7 +105,7 @@ async def detect_image_cnndetection(file: UploadFile = File(...)):
     cam.generate(result["tensor"], filepath, heatmap_path)
 
     return {
-        "detector": "CNNDetection + GradCAM + Forensic Fusion",
+        "detector": "CNNDetection + GradCAM + Forensic Fusion + C2PA",
         "input_file": file.filename,
         "saved_path": str(filepath),
         "ml_prediction": {
@@ -91,7 +113,20 @@ async def detect_image_cnndetection(file: UploadFile = File(...)):
             "label": result["label"],
         },
         "metadata_anomalies": anomaly,
+        # --- UPDATED C2PA OUTPUT ---
+        "c2pa": {
+            "has_c2pa": c2pa_info["has_c2pa"],
+            "signature_valid": c2pa_info["signature_valid"],
+            "ai_assertions_found": c2pa_info["ai_assertions_found"],
+            "tools_detected": c2pa_info["tools_detected"],
+            "edit_actions": c2pa_info["edit_actions"],
+            "digital_source_types": c2pa_info["digital_source_types"],
+            "software_agents": c2pa_info["software_agents"],
+            "overall_c2pa_score": c2pa_info["overall_c2pa_score"],
+            "errors": c2pa_info["errors"],
+            # "raw_manifest": c2pa_info["raw_manifest"],  # optional
+        },
         "forensic_score": fused,
         "gradcam_heatmap": str(heatmap_path),
-        "raw_metadata": metadata,  # optional
+        "raw_metadata": metadata,
     }
