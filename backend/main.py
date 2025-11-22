@@ -4,16 +4,20 @@ from backend.analysis.metadata_extractor import (
     extract_image_metadata,
     extract_video_metadata,
 )
+from backend.inference.cnndetect_native import CNNDetectionModel
+from backend.explainability.gradcam import GradCAM
 from pathlib import Path
-
-from backend.inference.cnndetect_cli import run_cnndetection
 import shutil, uuid
 
 UPLOAD_DIR = Path("backend/uploaded_files")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
+WEIGHTS = Path("vendor/CNNDetection/weights/blur_jpg_prob0.5.pth")
 
 app = FastAPI(title="Fírinne Dhigiteach API")
+
+# load CNNDetection model once
+cnndetector = CNNDetectionModel(weights_path=WEIGHTS)
 
 
 @app.get("/")
@@ -46,23 +50,33 @@ async def analyse_media(file: UploadFile = File(...)):
 
 @app.post("/detect/image/cnndetection")
 async def detect_image_cnndetection(file: UploadFile = File(...)):
-    # basic validation
     if not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="Please upload an image file.")
 
-    # save uploaded file
     suffix = Path(file.filename).suffix or ".png"
     filepath = UPLOAD_DIR / f"{uuid.uuid4().hex}{suffix}"
 
     with filepath.open("wb") as f:
         shutil.copyfileobj(file.file, f)
 
-    # run detector
-    result = run_cnndetection(filepath)
+    # 1. Run model prediction
+    result = cnndetector.predict(filepath)
+
+    # 2. Generate GradCAM
+    heatmap_path = (
+        Path("backend/generated/heatmaps") / f"{uuid.uuid4().hex}_gradcam.png"
+    )
+
+    cam = GradCAM(cnndetector.get_model(), cnndetector.get_target_layer())
+    cam.generate(result["tensor"], filepath, heatmap_path)
 
     return {
-        "detector": "CNNDetection",
+        "detector": "CNNDetection + GradCAM",
         "input_file": file.filename,
         "saved_path": str(filepath),
-        "result": result,
+        "prediction": {
+            "probability": result["probability"],
+            "label": result["label"],
+        },
+        "gradcam_heatmap": str(heatmap_path),
     }
