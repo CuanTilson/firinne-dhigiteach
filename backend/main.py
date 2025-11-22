@@ -8,6 +8,8 @@ from backend.analysis.c2pa_analyser import analyse_c2pa
 from backend.analysis.metadata_analyser import analyse_image_metadata
 from backend.analysis.forensic_fusion import fuse_forensic_scores
 from backend.analysis.exif_forensics import exif_forensics
+from backend.analysis.ela import compute_ela_score
+from backend.analysis.jpeg_qtable import analyse_qtables
 from backend.inference.cnndetect_native import CNNDetectionModel
 from backend.explainability.gradcam import GradCAM
 from pathlib import Path
@@ -72,6 +74,8 @@ async def detect_image_cnndetection(file: UploadFile = File(...)):
 
     exif_result = exif_forensics(metadata)
 
+    qtinfo = analyse_qtables(filepath)
+
     # 3. Metadata anomaly scoring
     anomaly = analyse_image_metadata(metadata)
 
@@ -90,6 +94,8 @@ async def detect_image_cnndetection(file: UploadFile = File(...)):
         # Samsung Photo Assist
         or "Photo assist" in c2pa_info.get("software_agents", [])
     )
+
+    ela = compute_ela_score(filepath)
 
     # 5. Fuse into forensic score
     fused = fuse_forensic_scores(
@@ -129,6 +135,14 @@ async def detect_image_cnndetection(file: UploadFile = File(...)):
             "overall_c2pa_score": c2pa_info["overall_c2pa_score"],
             "errors": c2pa_info["errors"],
             # "raw_manifest": c2pa_info["raw_manifest"],  # optional
+        },
+        "jpeg_qtables": {
+            "found": qtinfo["qtables_found"],
+            "anomaly_score": qtinfo["qtables_anomaly_score"],
+        },
+        "ela": {
+            "ela_score": ela.get("ela_score"),
+            # leave out the array for now — we’ll convert it into an image later
         },
         "forensic_score": fused,
         "gradcam_heatmap": str(heatmap_path),
