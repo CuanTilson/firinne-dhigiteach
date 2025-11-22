@@ -10,6 +10,7 @@ from backend.analysis.forensic_fusion import fuse_forensic_scores
 from backend.analysis.exif_forensics import exif_forensics
 from backend.analysis.ela import compute_ela_score
 from backend.analysis.jpeg_qtable import analyse_qtables
+from backend.analysis.noise_analysis import analyse_noise
 from backend.inference.cnndetect_native import CNNDetectionModel
 from backend.explainability.gradcam import GradCAM
 from pathlib import Path
@@ -76,6 +77,8 @@ async def detect_image_cnndetection(file: UploadFile = File(...)):
 
     qtinfo = analyse_qtables(filepath)
 
+    noise_info = analyse_noise(filepath)
+
     # 3. Metadata anomaly scoring
     anomaly = analyse_image_metadata(metadata)
 
@@ -139,6 +142,11 @@ async def detect_image_cnndetection(file: UploadFile = File(...)):
         "jpeg_qtables": {
             "found": qtinfo["qtables_found"],
             "anomaly_score": qtinfo["qtables_anomaly_score"],
+        },
+        "noise_residual": {
+            "variance": noise_info["residual_variance"],
+            "spectral_flatness": noise_info["spectral_flatness"],
+            "anomaly_score": noise_info["noise_anomaly_score"],
         },
         "ela": {
             "ela_score": ela.get("ela_score"),
