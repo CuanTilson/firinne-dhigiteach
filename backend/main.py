@@ -11,8 +11,8 @@ from backend.analysis.exif_forensics import exif_forensics
 from backend.analysis.ela import perform_ela
 from backend.analysis.jpeg_qtable import analyse_qtables
 from backend.analysis.noise_analysis import analyse_noise
+from backend.analysis.watermark_sd import detect_sd_watermark
 from backend.analysis.file_integrity import analyse_file_integrity
-
 from backend.inference.cnndetect_native import CNNDetectionModel
 from backend.explainability.gradcam import GradCAM
 from pathlib import Path
@@ -86,6 +86,9 @@ async def detect_image_cnndetection(file: UploadFile = File(...)):
 
     noise_info = analyse_noise(filepath)
 
+    watermark_info = detect_sd_watermark(filepath)
+    sd_watermark_score = 1.0 if watermark_info["watermark_detected"] else 0.0
+
     # 3. Metadata anomaly scoring
     anomaly = analyse_image_metadata(metadata)
 
@@ -120,6 +123,7 @@ async def detect_image_cnndetection(file: UploadFile = File(...)):
         ela_info["ela_anomaly_score"],
         noise_info["noise_anomaly_score"],
         qtinfo["qtables_anomaly_score"],
+        sd_watermark_score,
     )
 
     # 6. GradCAM heatmap
@@ -163,6 +167,12 @@ async def detect_image_cnndetection(file: UploadFile = File(...)):
             "variance": noise_info["residual_variance"],
             "spectral_flatness": noise_info["spectral_flatness"],
             "anomaly_score": noise_info["noise_anomaly_score"],
+        },
+        "ai_watermark": {
+            "stable_diffusion_detected": watermark_info["watermark_detected"],
+            "confidence": watermark_info["confidence"],
+            "raw_string": watermark_info.get("raw_watermark_string"),
+            "error": watermark_info["error"],
         },
         "ela_analysis": {
             "mean_error": ela_info["mean_error"],
