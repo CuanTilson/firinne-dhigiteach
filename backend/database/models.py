@@ -20,9 +20,7 @@ class AnalysisRecord(Base):
     gradcam_heatmap = Column(String)
     ela_heatmap = Column(String)
 
-    # --- Renamed to avoid SQLAlchemy conflict ---
-    raw_metadata = Column(JSON)
-
+    metadata_json = Column(JSON)
     exif_forensics = Column(JSON)
     c2pa = Column(JSON)
     jpeg_qtables = Column(JSON)

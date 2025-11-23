@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Depends
 from backend.analysis.upload import save_uploaded_file
 from backend.analysis.metadata_extractor import (
     extract_image_metadata,
@@ -15,10 +15,13 @@ from backend.analysis.watermark_sd import detect_sd_watermark
 from backend.analysis.file_integrity import analyse_file_integrity
 from backend.database.db import Base, engine, SessionLocal
 from backend.database.models import AnalysisRecord
+from backend.database.schemas import AnalysisSummary, AnalysisDetail
+from sqlalchemy.orm import Session
 from backend.inference.cnndetect_native import CNNDetectionModel
 from backend.explainability.gradcam import GradCAM
 from pathlib import Path
 import shutil, uuid
+
 
 UPLOAD_DIR = Path("backend/uploaded_files")
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
@@ -150,7 +153,7 @@ async def detect_image_cnndetection(file: UploadFile = File(...)):
         final_classification=fused["classification"],
         gradcam_heatmap=str(heatmap_path),
         ela_heatmap=ela_info["ela_image_path"],
-        raw_metadata=metadata,
+        metadata_json=metadata,
         exif_forensics=exif_result,
         c2pa=c2pa_info,
         jpeg_qtables=qtinfo,
@@ -211,3 +214,44 @@ async def detect_image_cnndetection(file: UploadFile = File(...)):
         "gradcam_heatmap": str(heatmap_path),
         "raw_metadata": metadata,
     }
+
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+@app.get("/records", response_model=list[AnalysisSummary])
+def list_records(
+    page: int = 1,
+    limit: int = 20,
+    classification: str | None = None,
+    db: Session = Depends(get_db),
+):
+    """
+    Fetch paginated analysis results.
+    Optional filtering by classification: likely_ai_generated / likely_real / uncertain
+    """
+    offset = (page - 1) * limit
+
+    q = db.query(AnalysisRecord)
+
+    if classification:
+        q = q.filter(AnalysisRecord.final_classification == classification)
+
+    records = (
+        q.order_by(AnalysisRecord.created_at.desc()).offset(offset).limit(limit).all()
+    )
+
+    return records
+
+
+@app.get("/records/{record_id}", response_model=AnalysisDetail)
+def get_record(record_id: int, db: Session = Depends(get_db)):
+    record = db.query(AnalysisRecord).filter(AnalysisRecord.id == record_id).first()
+    if not record:
+        raise HTTPException(404, "Record not found")
+    return record
