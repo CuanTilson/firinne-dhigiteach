@@ -1,34 +1,32 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException, Depends, Header
-from backend.analysis.upload import save_uploaded_file
-from backend.analysis.metadata_extractor import (
+from backend.analysis.upload import save_uploaded_file, UPLOAD_DIR
+from backend.analysis.metadata import (
     extract_image_metadata,
     extract_video_metadata,
+    analyse_image_metadata,
+    exif_forensics,
+    analyse_file_integrity,
+)
+from backend.analysis.forensics import (
+    analyse_noise,
+    analyse_qtables,
+    perform_ela,
+    detect_sd_watermark,
 )
 from backend.analysis.c2pa_analyser import analyse_c2pa
-from backend.analysis.metadata_analyser import analyse_image_metadata
 from backend.analysis.forensic_fusion import fuse_forensic_scores
-from backend.analysis.exif_forensics import exif_forensics
-from backend.analysis.ela import perform_ela
-from backend.analysis.jpeg_qtable import analyse_qtables
-from backend.analysis.noise_analysis import analyse_noise
-from backend.analysis.watermark_sd import detect_sd_watermark
-from backend.analysis.file_integrity import analyse_file_integrity
 from backend.database.db import Base, engine, SessionLocal
 from backend.database.models import AnalysisRecord
 from backend.database.schemas import AnalysisSummary, AnalysisDetail
 from sqlalchemy.orm import Session
-from backend.inference.cnndetect_native import CNNDetectionModel
+from backend.models.cnndetect_native import CNNDetectionModel
 from backend.explainability.gradcam import GradCAM
 from pathlib import Path
 import shutil, uuid
 
-
-UPLOAD_DIR = Path("backend/uploaded_files")
-UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-
 WEIGHTS = Path("vendor/CNNDetection/weights/blur_jpg_prob0.5.pth")
-Path("backend/generated/ela").mkdir(parents=True, exist_ok=True)
-Path("backend/generated/heatmaps").mkdir(parents=True, exist_ok=True)
+Path("backend/storage/ela").mkdir(parents=True, exist_ok=True)
+Path("backend/storage/heatmaps").mkdir(parents=True, exist_ok=True)
 
 ADMIN_KEY = "your-secret-admin-key"
 
@@ -47,13 +45,13 @@ def read_root():
     return {"message": "Fírinne Dhigiteach API is running"}
 
 
-@app.post("/upload")
+@app.post("/media/upload")
 async def upload_media(file: UploadFile = File(...)):
     saved_path = save_uploaded_file(file)
     return {"status": "success", "filename": file.filename, "saved_to": str(saved_path)}
 
 
-@app.post("/analyse")
+@app.post("/media/analyse")
 async def analyse_media(file: UploadFile = File(...)):
     saved_path = save_uploaded_file(file)
     ext = Path(file.filename).suffix.lower()
@@ -70,7 +68,7 @@ async def analyse_media(file: UploadFile = File(...)):
     }
 
 
-@app.post("/detect/image/cnndetection")
+@app.post("/analysis/image")
 async def detect_image_cnndetection(file: UploadFile = File(...)):
     if not file.content_type.startswith("image/"):
         raise HTTPException(400, "Please upload an image file.")
@@ -119,7 +117,7 @@ async def detect_image_cnndetection(file: UploadFile = File(...)):
     )
 
     # ELA analysis
-    ela_output_path = Path("backend/generated/ela") / f"{uuid.uuid4().hex}_ela.png"
+    ela_output_path = Path("backend/storage/ela") / f"{uuid.uuid4().hex}_ela.png"
     ela_info = perform_ela(
         filepath, quality=90, scale_factor=20, save_path=ela_output_path
     )
@@ -137,9 +135,7 @@ async def detect_image_cnndetection(file: UploadFile = File(...)):
     )
 
     # 6. GradCAM heatmap
-    heatmap_path = (
-        Path("backend/generated/heatmaps") / f"{uuid.uuid4().hex}_gradcam.png"
-    )
+    heatmap_path = Path("backend/storage/heatmaps") / f"{uuid.uuid4().hex}_gradcam.png"
 
     cam = GradCAM(cnndetector.get_model(), cnndetector.get_target_layer())
     cam.generate(result["tensor"], filepath, heatmap_path)
@@ -226,8 +222,8 @@ def get_db():
         db.close()
 
 
-@app.get("/records", response_model=list[AnalysisSummary])
-def list_records(
+@app.get("/analysis", response_model=list[AnalysisSummary])
+def list_analysis(
     page: int = 1,
     limit: int = 20,
     classification: str | None = None,
@@ -266,16 +262,16 @@ def list_records(
     return records
 
 
-@app.get("/records/{record_id}", response_model=AnalysisDetail)
-def get_record(record_id: int, db: Session = Depends(get_db)):
+@app.get("/analysis/{record_id}", response_model=AnalysisDetail)
+def get_analysis(record_id: int, db: Session = Depends(get_db)):
     record = db.query(AnalysisRecord).filter(AnalysisRecord.id == record_id).first()
     if not record:
         raise HTTPException(404, "Record not found")
     return record
 
 
-@app.delete("/records/{record_id}")
-def delete_record(
+@app.delete("/analysis/{record_id}")
+def delete_analysis(
     record_id: int, admin_key: str = Header(None), db: Session = Depends(get_db)
 ):
     if admin_key != ADMIN_KEY:

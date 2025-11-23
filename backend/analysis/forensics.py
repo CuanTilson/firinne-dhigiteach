@@ -1,0 +1,264 @@
+from pathlib import Path
+import numpy as np
+import cv2
+import os
+from PIL import Image, ImageChops
+
+# Optional import for SD invisible watermark detection
+try:
+    from imwatermark import WatermarkDecoder
+except ImportError:
+    WatermarkDecoder = None
+
+
+# ============================================================
+#  1. NOISE ANALYSIS
+# ============================================================
+
+
+def _load_gray(image_path: Path):
+    img = Image.open(image_path).convert("L")
+    return np.array(img, dtype=np.float32) / 255.0
+
+
+def _noise_residual(image: np.ndarray):
+    """Simple high-pass filter (Laplacian) to extract sensor noise."""
+    kernel = np.array([[0, -1, 0], [-1, 4, -1], [0, -1, 0]], dtype=np.float32)
+    return cv2.filter2D(image, -1, kernel)
+
+
+def _frequency_spectrum(image: np.ndarray):
+    """Magnitude of FFT spectrum."""
+    f = np.fft.fft2(image)
+    fshift = np.fft.fftshift(f)
+    return np.abs(fshift)
+
+
+def analyse_noise(image_path: Path) -> dict:
+    img = _load_gray(image_path)
+
+    # Noise residual
+    res = _noise_residual(img)
+    variance = float(np.var(res))
+
+    # Frequency behaviour
+    freq = _frequency_spectrum(img)
+    freq_norm = freq / (np.max(freq) + 1e-8)
+    flatness = float(np.mean(freq_norm))
+
+    # Heuristic scoring
+    score = 0.0
+
+    if variance < 0.0005:
+        score += 0.6
+    elif variance < 0.001:
+        score += 0.3
+
+    if flatness > 0.25:
+        score += 0.4
+    elif flatness > 0.18:
+        score += 0.2
+
+    return {
+        "residual_variance": variance,
+        "spectral_flatness": flatness,
+        "noise_anomaly_score": min(1.0, score),
+    }
+
+
+# ============================================================
+#  2. JPEG QUANTISATION TABLE ANALYSIS
+# ============================================================
+
+STANDARD_LIBJPEG_TABLES = {
+    "std_luma": np.array(
+        [
+            [16, 11, 10, 16, 24, 40, 51, 61],
+            [12, 12, 14, 19, 26, 58, 60, 55],
+            [14, 13, 16, 24, 40, 57, 69, 56],
+            [14, 17, 22, 29, 51, 87, 80, 62],
+            [18, 22, 37, 56, 68, 109, 103, 77],
+            [24, 35, 55, 64, 81, 104, 113, 92],
+            [49, 64, 78, 87, 103, 121, 120, 101],
+            [72, 92, 95, 98, 112, 100, 103, 99],
+        ]
+    ),
+    "std_chroma": np.array(
+        [
+            [17, 18, 24, 47, 99, 99, 99, 99],
+            [18, 21, 26, 66, 99, 99, 99, 99],
+            [24, 26, 56, 99, 99, 99, 99, 99],
+            [47, 66, 99, 99, 99, 99, 99, 99],
+            [99, 99, 99, 99, 99, 99, 99, 99],
+            [99, 99, 99, 99, 99, 99, 99, 99],
+            [99, 99, 99, 99, 99, 99, 99, 99],
+            [99, 99, 99, 99, 99, 99, 99, 99],
+        ]
+    ),
+}
+
+
+def _extract_qtables(image_path: Path):
+    try:
+        img = Image.open(image_path)
+        if not hasattr(img, "quantization"):
+            return None
+        return img.quantization
+    except Exception:
+        return None
+
+
+def _score_qtables(qtables) -> float:
+    if qtables is None:
+        return 0.0
+
+    tables = list(qtables.values())
+    if len(tables) == 0:
+        return 0.0
+
+    luma = np.array(tables[0]).reshape(8, 8)
+
+    d_std = np.mean(np.abs(luma - STANDARD_LIBJPEG_TABLES["std_luma"])) / 255.0
+    variance = float(np.var(luma) / 5000)
+
+    return float(min(1.0, (d_std * 0.7) + (variance * 0.3)))
+
+
+def analyse_qtables(image_path: Path):
+    q = _extract_qtables(image_path)
+    anomaly = _score_qtables(q)
+    return {
+        "qtables_found": q is not None,
+        "qtables": q,
+        "qtables_anomaly_score": anomaly,
+    }
+
+
+# ============================================================
+#  3. ERROR LEVEL ANALYSIS (ELA)
+# ============================================================
+
+
+def _ensure_jpeg(src_path: Path) -> Path:
+    if src_path.suffix.lower() in [".jpg", ".jpeg"]:
+        return src_path
+
+    tmp_path = src_path.with_suffix(".ela_tmp.jpg")
+    with Image.open(src_path).convert("RGB") as im:
+        im.save(tmp_path, "JPEG", quality=95)
+    return tmp_path
+
+
+def perform_ela(
+    image_path: Path,
+    quality: int = 90,
+    scale_factor: int = 20,
+    save_path: Path | None = None,
+) -> dict:
+    jpeg_path = _ensure_jpeg(image_path)
+
+    # Recompress
+    with Image.open(jpeg_path).convert("RGB") as original:
+        recompressed_path = jpeg_path.with_suffix(".ela_recompressed.jpg")
+        original.save(recompressed_path, "JPEG", quality=quality)
+
+    # Difference
+    with Image.open(jpeg_path).convert("RGB") as original, Image.open(
+        recompressed_path
+    ).convert("RGB") as recompressed:
+
+        diff = ImageChops.difference(original, recompressed)
+
+        diff_np = np.array(diff).astype(np.float32)
+        diff_np *= scale_factor
+        diff_np = np.clip(diff_np, 0, 255).astype(np.uint8)
+        diff_enhanced = Image.fromarray(diff_np)
+
+        mean_error = float(diff_np.mean())
+        max_error = float(diff_np.max())
+
+        # Heuristic scoring
+        score = 0.0
+
+        if mean_error < 3.0:
+            score += 0.4
+        elif mean_error < 6.0:
+            score += 0.2
+
+        if max_error > 80.0:
+            score += 0.4
+        elif max_error > 50.0:
+            score += 0.2
+
+        ela_image_path = None
+        if save_path is not None:
+            save_path.parent.mkdir(parents=True, exist_ok=True)
+            diff_enhanced.save(save_path, "PNG")
+            ela_image_path = str(save_path)
+
+    # cleanup
+    try:
+        os.remove(recompressed_path)
+    except OSError:
+        pass
+
+    return {
+        "mean_error": mean_error,
+        "max_error": max_error,
+        "ela_anomaly_score": float(min(score, 1.0)),
+        "ela_image_path": ela_image_path,
+    }
+
+
+# ============================================================
+#  4. STABLE DIFFUSION INVISIBLE WATERMARK DETECTION
+# ============================================================
+
+
+def detect_sd_watermark(image_path: Path) -> dict:
+    if WatermarkDecoder is None:
+        return {
+            "watermark_detected": False,
+            "confidence": 0.0,
+            "error": "invisible-watermark not installed",
+        }
+
+    try:
+        img = Image.open(image_path).convert("RGB")
+        arr = np.array(img)
+
+        decoder = WatermarkDecoder("bytes", 4)
+        watermark = decoder.decode(arr, "dwtDct")
+
+        if watermark is None:
+            return {
+                "watermark_detected": False,
+                "confidence": 0.0,
+                "error": None,
+            }
+
+        wm_str = watermark.decode(errors="ignore")
+
+        hits = 0
+        if "SD" in wm_str:
+            hits += 1
+        if "SDW" in wm_str:
+            hits += 1
+        if "sd" in wm_str.lower():
+            hits += 1
+
+        confidence = min(1.0, hits / 3)
+
+        return {
+            "watermark_detected": confidence > 0.3,
+            "confidence": confidence,
+            "raw_watermark_string": wm_str,
+            "error": None,
+        }
+
+    except Exception as e:
+        return {
+            "watermark_detected": False,
+            "confidence": 0.0,
+            "error": str(e),
+        }

@@ -19,7 +19,7 @@ def fuse_forensic_scores(
       - Stable Diffusion invisible watermark presence
     """
 
-    # 🔒 Hard override: explicit AI from C2PA (strongest evidence available)
+    # Explicit AI from C2PA (strongest evidence available)
     if c2pa_ai_flag:
         final_score = max(ml_prob, c2pa_score, 0.9)
         return {
