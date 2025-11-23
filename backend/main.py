@@ -13,6 +13,8 @@ from backend.analysis.jpeg_qtable import analyse_qtables
 from backend.analysis.noise_analysis import analyse_noise
 from backend.analysis.watermark_sd import detect_sd_watermark
 from backend.analysis.file_integrity import analyse_file_integrity
+from backend.database.db import Base, engine, SessionLocal
+from backend.database.models import AnalysisRecord
 from backend.inference.cnndetect_native import CNNDetectionModel
 from backend.explainability.gradcam import GradCAM
 from pathlib import Path
@@ -27,6 +29,9 @@ Path("backend/generated/heatmaps").mkdir(parents=True, exist_ok=True)
 
 
 app = FastAPI(title="Fírinne Dhigiteach API")
+
+# Auto-creates the SQLite tables
+Base.metadata.create_all(bind=engine)
 
 # load CNNDetection model once
 cnndetector = CNNDetectionModel(weights_path=WEIGHTS)
@@ -133,6 +138,28 @@ async def detect_image_cnndetection(file: UploadFile = File(...)):
 
     cam = GradCAM(cnndetector.get_model(), cnndetector.get_target_layer())
     cam.generate(result["tensor"], filepath, heatmap_path)
+
+    # 7. Save to database
+    session = SessionLocal()
+    record = AnalysisRecord(
+        filename=file.filename,
+        saved_path=str(filepath),
+        ml_probability=ml_prob,
+        ml_label=result["label"],
+        final_score=fused["final_score"],
+        final_classification=fused["classification"],
+        gradcam_heatmap=str(heatmap_path),
+        ela_heatmap=ela_info["ela_image_path"],
+        raw_metadata=metadata,
+        exif_forensics=exif_result,
+        c2pa=c2pa_info,
+        jpeg_qtables=qtinfo,
+        noise_residual=noise_info,
+        ela_analysis=ela_info,
+    )
+    session.add(record)
+    session.commit()
+    session.close()
 
     return {
         "detector": "CNNDetection + GradCAM + Forensic Fusion + C2PA",
