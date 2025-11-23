@@ -51,7 +51,7 @@ async def upload_media(file: UploadFile = File(...)):
     return {"status": "success", "filename": file.filename, "saved_to": str(saved_path)}
 
 
-@app.post("/media/analyse")
+@app.post("/media/metadata")
 async def analyse_media(file: UploadFile = File(...)):
     saved_path = save_uploaded_file(file)
     ext = Path(file.filename).suffix.lower()
