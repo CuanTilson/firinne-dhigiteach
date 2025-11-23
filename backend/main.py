@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException, Depends
+from fastapi import FastAPI, UploadFile, File, HTTPException, Depends, Header
 from backend.analysis.upload import save_uploaded_file
 from backend.analysis.metadata_extractor import (
     extract_image_metadata,
@@ -29,6 +29,8 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 WEIGHTS = Path("vendor/CNNDetection/weights/blur_jpg_prob0.5.pth")
 Path("backend/generated/ela").mkdir(parents=True, exist_ok=True)
 Path("backend/generated/heatmaps").mkdir(parents=True, exist_ok=True)
+
+ADMIN_KEY = "your-secret-admin-key"
 
 
 app = FastAPI(title="Fírinne Dhigiteach API")
@@ -229,18 +231,33 @@ def list_records(
     page: int = 1,
     limit: int = 20,
     classification: str | None = None,
+    filename: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
     db: Session = Depends(get_db),
 ):
     """
-    Fetch paginated analysis results.
-    Optional filtering by classification: likely_ai_generated / likely_real / uncertain
+    Paginated list of analysis records with optional filtering:
+      - classification filter
+      - filename contains filter
+      - created_at date range filter (YYYY-MM-DD)
     """
     offset = (page - 1) * limit
-
     q = db.query(AnalysisRecord)
 
+    # classification filter
     if classification:
         q = q.filter(AnalysisRecord.final_classification == classification)
+
+    # filename search (case-insensitive)
+    if filename:
+        q = q.filter(AnalysisRecord.filename.ilike(f"%{filename}%"))
+
+    # date range filtering
+    if date_from:
+        q = q.filter(AnalysisRecord.created_at >= date_from)
+    if date_to:
+        q = q.filter(AnalysisRecord.created_at <= date_to)
 
     records = (
         q.order_by(AnalysisRecord.created_at.desc()).offset(offset).limit(limit).all()
@@ -255,3 +272,20 @@ def get_record(record_id: int, db: Session = Depends(get_db)):
     if not record:
         raise HTTPException(404, "Record not found")
     return record
+
+
+@app.delete("/records/{record_id}")
+def delete_record(
+    record_id: int, admin_key: str = Header(None), db: Session = Depends(get_db)
+):
+    if admin_key != ADMIN_KEY:
+        raise HTTPException(403, "Invalid admin key")
+
+    record = db.query(AnalysisRecord).filter(AnalysisRecord.id == record_id).first()
+    if not record:
+        raise HTTPException(404, "Record not found")
+
+    db.delete(record)
+    db.commit()
+
+    return {"status": "deleted", "id": record_id}
