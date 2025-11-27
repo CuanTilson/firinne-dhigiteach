@@ -1,4 +1,14 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException, Depends, Header
+from fastapi import (
+    FastAPI,
+    UploadFile,
+    File,
+    HTTPException,
+    Depends,
+    Header,
+)
+
+from starlette.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 from backend.analysis.upload import save_uploaded_file, UPLOAD_DIR
 from backend.analysis.metadata import (
     extract_image_metadata,
@@ -17,7 +27,11 @@ from backend.analysis.c2pa_analyser import analyse_c2pa
 from backend.analysis.forensic_fusion import fuse_forensic_scores
 from backend.database.db import Base, engine, SessionLocal
 from backend.database.models import AnalysisRecord
-from backend.database.schemas import AnalysisSummary, AnalysisDetail
+from backend.database.schemas import (
+    AnalysisSummary,
+    AnalysisDetail,
+    PaginatedAnalysisSummary,
+)
 from sqlalchemy.orm import Session
 from backend.models.cnndetect_native import CNNDetectionModel
 from backend.explainability.gradcam import GradCAM
@@ -28,10 +42,26 @@ WEIGHTS = Path("vendor/CNNDetection/weights/blur_jpg_prob0.5.pth")
 Path("backend/storage/ela").mkdir(parents=True, exist_ok=True)
 Path("backend/storage/heatmaps").mkdir(parents=True, exist_ok=True)
 
-ADMIN_KEY = "your-secret-admin-key"
-
+ADMIN_KEY = "secret-admin-key"
 
 app = FastAPI(title="Fírinne Dhigiteach API")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Mount static asset folders so frontend can load images
+app.mount(
+    "/uploaded", StaticFiles(directory="backend/storage/uploaded"), name="uploaded"
+)
+app.mount("/ela", StaticFiles(directory="backend/storage/ela"), name="ela")
+app.mount(
+    "/heatmaps", StaticFiles(directory="backend/storage/heatmaps"), name="heatmaps"
+)
 
 # Auto-creates the SQLite tables
 Base.metadata.create_all(bind=engine)
@@ -43,6 +73,11 @@ cnndetector = CNNDetectionModel(weights_path=WEIGHTS)
 @app.get("/")
 def read_root():
     return {"message": "Fírinne Dhigiteach API is running"}
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
 
 
 @app.post("/media/upload")
@@ -145,12 +180,23 @@ async def detect_image_cnndetection(file: UploadFile = File(...)):
     record = AnalysisRecord(
         filename=file.filename,
         saved_path=str(filepath),
+        # OLD FIELDS (still saved)
         ml_probability=ml_prob,
         ml_label=result["label"],
         final_score=fused["final_score"],
         final_classification=fused["classification"],
         gradcam_heatmap=str(heatmap_path),
         ela_heatmap=ela_info["ela_image_path"],
+        # NEW FIELDS YOU MUST SAVE
+        forensic_score=fused,
+        ml_prediction={
+            "probability": ml_prob,
+            "label": result["label"],
+        },
+        metadata_anomalies=anomaly,
+        file_integrity=file_integrity,
+        ai_watermark=watermark_info,
+        # EXISTING FORENSIC FIELDS
         metadata_json=metadata,
         exif_forensics=exif_result,
         c2pa=c2pa_info,
@@ -160,12 +206,17 @@ async def detect_image_cnndetection(file: UploadFile = File(...)):
     )
     session.add(record)
     session.commit()
+
+    # Extract the timestamp *before* closing the session
+    created_at = record.created_at
+
     session.close()
 
     return {
         "detector": "CNNDetection + GradCAM + Forensic Fusion + C2PA",
         "input_file": file.filename,
         "saved_path": str(filepath),
+        "created_at": record.created_at.isoformat(),
         "file_integrity": file_integrity,
         "ml_prediction": {
             "probability": ml_prob,
@@ -222,7 +273,7 @@ def get_db():
         db.close()
 
 
-@app.get("/analysis", response_model=list[AnalysisSummary])
+@app.get("/analysis", response_model=PaginatedAnalysisSummary)
 def list_analysis(
     page: int = 1,
     limit: int = 20,
@@ -259,7 +310,15 @@ def list_analysis(
         q.order_by(AnalysisRecord.created_at.desc()).offset(offset).limit(limit).all()
     )
 
-    return records
+    total = q.count()
+
+    return {
+        "data": records,
+        "total": total,
+        "page": page,
+        "limit": limit,
+        "total_pages": (total + limit - 1) // limit,
+    }
 
 
 @app.get("/analysis/{record_id}", response_model=AnalysisDetail)
@@ -267,7 +326,37 @@ def get_analysis(record_id: int, db: Session = Depends(get_db)):
     record = db.query(AnalysisRecord).filter(AnalysisRecord.id == record_id).first()
     if not record:
         raise HTTPException(404, "Record not found")
-    return record
+    return {
+        "id": record.id,
+        "filename": record.filename,
+        "saved_path": record.saved_path,
+
+        "ml_probability": record.ml_probability,
+        "ml_label": record.ml_label,
+
+        "final_score": record.final_score,
+        "final_classification": record.final_classification,
+
+        "gradcam_heatmap": record.gradcam_heatmap,
+        "ela_heatmap": record.ela_heatmap,
+
+        "forensic_score": record.forensic_score,
+        "ml_prediction": record.ml_prediction,
+        "metadata_anomalies": record.metadata_anomalies,
+        "file_integrity": record.file_integrity,
+        "ai_watermark": record.ai_watermark,
+
+        "metadata_json": record.metadata_json,
+        "exif_forensics": record.exif_forensics,
+        "c2pa": record.c2pa,
+        "jpeg_qtables": record.jpeg_qtables,
+        "noise_residual": record.noise_residual,
+        "ela_analysis": record.ela_analysis,
+
+        "raw_metadata": record.metadata_json,
+        "created_at": record.created_at,
+    }
+
 
 
 @app.delete("/analysis/{record_id}")
