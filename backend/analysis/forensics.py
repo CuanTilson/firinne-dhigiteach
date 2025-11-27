@@ -2,13 +2,45 @@ from pathlib import Path
 import numpy as np
 import cv2
 import os
-from PIL import Image, ImageChops
+from PIL import Image, ImageChops, ExifTags
 
 # Optional import for SD invisible watermark detection
 try:
     from imwatermark import WatermarkDecoder
 except ImportError:
     WatermarkDecoder = None
+
+
+# ============================================================
+#  ORIENTATION FIX
+# ============================================================
+
+
+def apply_orientation(img: Image.Image) -> Image.Image:
+    """Corrects image orientation based on EXIF."""
+    try:
+        exif = img._getexif()
+        if not exif:
+            return img
+
+        orientation_key = next(
+            (k for k, v in ExifTags.TAGS.items() if v == "Orientation"), None
+        )
+        if orientation_key is None:
+            return img
+
+        orientation = exif.get(orientation_key)
+
+        if orientation == 3:
+            return img.rotate(180, expand=True)
+        elif orientation == 6:  # 90° CW
+            return img.rotate(270, expand=True)
+        elif orientation == 8:  # 90° CCW
+            return img.rotate(90, expand=True)
+
+        return img
+    except Exception:
+        return img
 
 
 # ============================================================
@@ -67,7 +99,7 @@ def analyse_noise(image_path: Path) -> dict:
 
 
 # ============================================================
-#  2. JPEG QUANTISATION TABLE ANALYSIS
+#  2. JPEG QTABLE ANALYSIS
 # ============================================================
 
 STANDARD_LIBJPEG_TABLES = {
@@ -135,7 +167,7 @@ def analyse_qtables(image_path: Path):
 
 
 # ============================================================
-#  3. ERROR LEVEL ANALYSIS (ELA)
+#  3. ERROR LEVEL ANALYSIS (ELA) WITH ORIENTATION FIX
 # ============================================================
 
 
@@ -157,17 +189,20 @@ def perform_ela(
 ) -> dict:
     jpeg_path = _ensure_jpeg(image_path)
 
-    # Recompress
-    with Image.open(jpeg_path).convert("RGB") as original:
+    # Load + correct orientation
+    with Image.open(jpeg_path) as img:
+        img = apply_orientation(img).convert("RGB")
+        original = img
+
         recompressed_path = jpeg_path.with_suffix(".ela_recompressed.jpg")
         original.save(recompressed_path, "JPEG", quality=quality)
 
     # Difference
-    with Image.open(jpeg_path).convert("RGB") as original, Image.open(
-        recompressed_path
-    ).convert("RGB") as recompressed:
+    with Image.open(jpeg_path) as img1, Image.open(recompressed_path) as img2:
+        img1 = apply_orientation(img1).convert("RGB")
+        img2 = apply_orientation(img2).convert("RGB")
 
-        diff = ImageChops.difference(original, recompressed)
+        diff = ImageChops.difference(img1, img2)
 
         diff_np = np.array(diff).astype(np.float32)
         diff_np *= scale_factor
@@ -177,14 +212,11 @@ def perform_ela(
         mean_error = float(diff_np.mean())
         max_error = float(diff_np.max())
 
-        # Heuristic scoring
         score = 0.0
-
         if mean_error < 3.0:
             score += 0.4
         elif mean_error < 6.0:
             score += 0.2
-
         if max_error > 80.0:
             score += 0.4
         elif max_error > 50.0:
@@ -196,7 +228,6 @@ def perform_ela(
             diff_enhanced.save(save_path, "PNG")
             ela_image_path = str(save_path)
 
-    # cleanup
     try:
         os.remove(recompressed_path)
     except OSError:
@@ -211,7 +242,7 @@ def perform_ela(
 
 
 # ============================================================
-#  4. STABLE DIFFUSION INVISIBLE WATERMARK DETECTION
+#  4. SD INVISIBLE WATERMARK
 # ============================================================
 
 
@@ -239,14 +270,7 @@ def detect_sd_watermark(image_path: Path) -> dict:
 
         wm_str = watermark.decode(errors="ignore")
 
-        hits = 0
-        if "SD" in wm_str:
-            hits += 1
-        if "SDW" in wm_str:
-            hits += 1
-        if "sd" in wm_str.lower():
-            hits += 1
-
+        hits = ("SD" in wm_str) + ("SDW" in wm_str) + ("sd" in wm_str.lower())
         confidence = min(1.0, hits / 3)
 
         return {
