@@ -20,7 +20,12 @@ class AnalysisRecord(Base):
     gradcam_heatmap = Column(String)
     ela_heatmap = Column(String)
 
+    forensic_score = Column(JSON)
+    ml_prediction = Column(JSON)
+    metadata_anomalies = Column(JSON)
     metadata_json = Column(JSON)
+    file_integrity = Column(JSON)
+    ai_watermark = Column(JSON)
     exif_forensics = Column(JSON)
     c2pa = Column(JSON)
     jpeg_qtables = Column(JSON)
