@@ -10,17 +10,18 @@ class AnalysisRecord(Base):
 
     filename = Column(String)
     saved_path = Column(String)
+    thumbnail_path = Column(String)
 
     ml_probability = Column(Float)
     ml_label = Column(String)
 
-    final_score = Column(Float)
-    final_classification = Column(String)
+    forensic_score = Column(Float)
+    classification = Column(String)
 
     gradcam_heatmap = Column(String)
     ela_heatmap = Column(String)
 
-    forensic_score = Column(JSON)
+    forensic_score_json = Column(JSON)
     ml_prediction = Column(JSON)
     metadata_anomalies = Column(JSON)
     metadata_json = Column(JSON)

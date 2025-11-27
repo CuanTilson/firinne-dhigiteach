@@ -10,8 +10,8 @@ interface Props {
 
 export const ForensicScoreCard: React.FC<Props> = ({ data }) => {
   // Correct fields
-  const classification = data.forensic_score?.classification ?? "uncertain";
-  const scorePercent = (data.forensic_score?.final_score ?? 0) * 100;
+  const classification = data.classification ?? "uncertain";
+  const scorePercent = (data.forensic_score_json?.final_score ?? 0) * 100;
   const mlConfidence = data.ml_prediction?.probability ?? 0;
   const metadataAnomalyCount = data.metadata_anomalies?.findings?.length ?? 0;
   const noiseLevel = data.noise_residual?.variance ?? 0;
@@ -41,25 +41,29 @@ export const ForensicScoreCard: React.FC<Props> = ({ data }) => {
   return (
     <div className="bg-slate-800 rounded-xl p-6 border border-slate-700 shadow-lg flex flex-col md:flex-row gap-6 items-center">
       {/* Visual Gauge */}
-      <div className="relative w-32 h-32 shrink-0">
-        <ResponsiveContainer width="100%" height="100%">
-          <PieChart>
-            <Pie
-              data={chartData}
-              cx="50%"
-              cy="50%"
-              innerRadius={50}
-              outerRadius={60}
-              startAngle={90}
-              endAngle={-270}
-              dataKey="value"
-              stroke="none"
-            >
-              <Cell fill={getColor()} />
-              <Cell fill="#334155" />
-            </Pie>
-          </PieChart>
-        </ResponsiveContainer>
+      <div className="relative shrink-0">
+        <div style={{ width: 128, height: 128 }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <PieChart>
+              <Pie
+                data={chartData}
+                cx="50%"
+                cy="50%"
+                innerRadius={50}
+                outerRadius={60}
+                startAngle={90}
+                endAngle={-270}
+                dataKey="value"
+                stroke="none"
+              >
+                <Cell fill={getColor()} />
+                <Cell fill="#334155" />
+              </Pie>
+            </PieChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* Overlay text */}
         <div className="absolute inset-0 flex flex-col items-center justify-center">
           <span className="text-2xl font-bold text-slate-100">
             {scorePercent.toFixed(0)}%

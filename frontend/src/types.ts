@@ -8,7 +8,6 @@ export type ClassificationType =
 export interface AnalysisResult {
   id?: number;
 
-  input_file: string;
   filename?: string;
   saved_path: string | null;
 
@@ -77,7 +76,10 @@ export interface AnalysisResult {
     ela_heatmap: string | null;
   };
 
-  forensic_score: {
+  forensic_score: number;
+  classification: ClassificationType;
+
+  forensic_score_json: {
     final_score: number;
     classification: ClassificationType;
     override: boolean;
@@ -90,14 +92,16 @@ export interface AnalysisResult {
 }
 
 
+
 export interface AnalysisRecordSummary {
   id: number;
   filename: string;
-  classification: ClassificationType;
   forensic_score: number;
+  classification: ClassificationType;
   thumbnail_url: string;
   created_at: string;
 }
+
 
 export interface PaginatedResponse<T> {
   data: T[];

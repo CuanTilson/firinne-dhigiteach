@@ -6,9 +6,10 @@ from datetime import datetime
 class AnalysisSummary(BaseModel):
     id: int
     filename: str
-    final_score: float
-    final_classification: str
+    forensic_score: float
+    classification: str
     created_at: datetime
+    thumbnail_url: str
 
     class Config:
         orm_mode = True
@@ -22,13 +23,13 @@ class AnalysisDetail(BaseModel):
     ml_probability: Optional[float]
     ml_label: Optional[str]
 
-    final_score: Optional[float]
-    final_classification: Optional[str]
+    forensic_score: Optional[float]  # float score
+    classification: Optional[str]  # text label
 
     gradcam_heatmap: Optional[str]
     ela_heatmap: Optional[str]
 
-    forensic_score: Optional[Any]
+    forensic_score_json: Optional[Any]
     ml_prediction: Optional[Any]
     metadata_anomalies: Optional[Any]
     file_integrity: Optional[Any]

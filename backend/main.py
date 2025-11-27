@@ -9,6 +9,8 @@ from fastapi import (
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.staticfiles import StaticFiles
 
+from PIL import Image
+
 from sqlalchemy.orm import Session
 from pathlib import Path
 import shutil
@@ -59,6 +61,8 @@ from backend.explainability.gradcam import GradCAM
 WEIGHTS = Path("vendor/CNNDetection/weights/blur_jpg_prob0.5.pth")
 Path("backend/storage/ela").mkdir(parents=True, exist_ok=True)
 Path("backend/storage/heatmaps").mkdir(parents=True, exist_ok=True)
+THUMB_DIR = Path("backend/storage/thumbnails")
+THUMB_DIR.mkdir(parents=True, exist_ok=True)
 
 ADMIN_KEY = "secret-admin-key"
 
@@ -81,6 +85,12 @@ app.mount("/ela", StaticFiles(directory="backend/storage/ela"), name="ela")
 app.mount(
     "/heatmaps", StaticFiles(directory="backend/storage/heatmaps"), name="heatmaps"
 )
+app.mount(
+    "/thumbnails",
+    StaticFiles(directory="backend/storage/thumbnails"),
+    name="thumbnails",
+)
+
 
 # Create database tables
 Base.metadata.create_all(bind=engine)
@@ -164,6 +174,13 @@ async def analyse_image(file: UploadFile = File(...)):
     with filepath.open("wb") as f:
         shutil.copyfileobj(file.file, f)
 
+    # Generate 128×128 thumbnail
+    thumb_path = THUMB_DIR / f"{uuid.uuid4().hex}_thumb.jpg"
+
+    with Image.open(filepath) as img:
+        img.thumbnail((128, 128))
+        img.save(thumb_path, "JPEG")
+
     # -----------------------
     # Run all analysis stages
     # -----------------------
@@ -220,13 +237,14 @@ async def analyse_image(file: UploadFile = File(...)):
     record = AnalysisRecord(
         filename=file.filename,
         saved_path=str(filepath),
+        thumbnail_path=str(thumb_path),
         ml_probability=ml_prob,
         ml_label=ml["label"],
-        final_score=fused["final_score"],
-        final_classification=fused["classification"],
+        forensic_score=fused["final_score"],  # float score
+        classification=fused["classification"],  # text label
         gradcam_heatmap=str(heatmap_path),
         ela_heatmap=ela_info["ela_image_path"],
-        forensic_score=fused,
+        forensic_score_json=fused,  # full JSON payload
         ml_prediction={"probability": ml_prob, "label": ml["label"]},
         metadata_anomalies=anomaly,
         file_integrity=file_integrity,
@@ -289,7 +307,9 @@ async def analyse_image(file: UploadFile = File(...)):
             "anomaly_score": ela_info["ela_anomaly_score"],
             "ela_heatmap": ela_info["ela_image_path"],
         },
-        "forensic_score": fused,
+        "forensic_score": fused["final_score"],
+        "classification": fused["classification"],
+        "forensic_score_json": fused,
         "gradcam_heatmap": str(heatmap_path),
         "raw_metadata": metadata,
     }
@@ -314,7 +334,7 @@ def list_analysis(
     q = db.query(AnalysisRecord)
 
     if classification:
-        q = q.filter(AnalysisRecord.final_classification == classification)
+        q = q.filter(AnalysisRecord.classification == classification)
 
     if filename:
         q = q.filter(AnalysisRecord.filename.ilike(f"%{filename}%"))
@@ -332,7 +352,17 @@ def list_analysis(
     total = q.count()
 
     return {
-        "data": records,
+        "data": [
+            {
+                "id": r.id,
+                "filename": r.filename,
+                "forensic_score": r.forensic_score,
+                "classification": r.classification,
+                "created_at": r.created_at,
+                "thumbnail_url": f"/thumbnails/{Path(r.thumbnail_path).name}",
+            }
+            for r in records
+        ],
         "total": total,
         "page": page,
         "limit": limit,
@@ -353,11 +383,11 @@ def get_analysis(record_id: int, db: Session = Depends(get_db)):
         "saved_path": record.saved_path,
         "ml_probability": record.ml_probability,
         "ml_label": record.ml_label,
-        "final_score": record.final_score,
-        "final_classification": record.final_classification,
+        "forensic_score": record.forensic_score,  # float
+        "classification": record.classification,  # string
+        "forensic_score_json": record.forensic_score_json,  # full JSON
         "gradcam_heatmap": record.gradcam_heatmap,
         "ela_heatmap": record.ela_heatmap,
-        "forensic_score": record.forensic_score,
         "ml_prediction": record.ml_prediction,
         "metadata_anomalies": record.metadata_anomalies,
         "file_integrity": record.file_integrity,
