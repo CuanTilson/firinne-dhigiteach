@@ -220,7 +220,6 @@ Thumbs.db
 # Data / models
 data/*
 !data/.gitkeep
-models/
 *.pth
 *.pt
 *.h5
