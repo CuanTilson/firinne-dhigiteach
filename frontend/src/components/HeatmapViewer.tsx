@@ -1,6 +1,5 @@
 import React, { useState } from "react";
 import { Eye, Layers, Zap } from "lucide-react";
-import { API_BASE_URL } from "../constants";
 
 interface HeatmapViewerProps {
   originalUrl?: string;
@@ -17,24 +16,18 @@ export const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
 }) => {
   const [mode, setMode] = useState<ViewMode>("original");
 
-  // always put this INSIDE the component, right where the old version is
-  const getFullUrl = (url?: string) => {
-    if (!url) return "";
-    const clean = url.replace(/\\/g, "/"); // normalise Windows backslashes
-    if (clean.startsWith("http")) return clean;
-    return `${API_BASE_URL}/${clean}`;
-  };
-
-  const currentImage = () => {
+  const currentImage = (): string | undefined => {
     switch (mode) {
       case "ela":
-        return getFullUrl(elaUrl);
+        return elaUrl;
       case "gradcam":
-        return getFullUrl(gradCamUrl);
+        return gradCamUrl;
       default:
-        return getFullUrl(originalUrl);
+        return originalUrl;
     }
   };
+
+  const src = currentImage();
 
   return (
     <div className="flex flex-col h-full bg-slate-800 rounded-xl overflow-hidden border border-slate-700 shadow-lg">
@@ -75,7 +68,6 @@ export const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
       </div>
 
       <div className="relative grow bg-slate-950 flex items-center justify-center min-h-[400px]">
-        {/* Pattern background */}
         <div
           className="absolute inset-0 opacity-10"
           style={{
@@ -84,11 +76,17 @@ export const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
           }}
         ></div>
 
-        <img
-          src={currentImage()}
-          alt={`Analysis View - ${mode}`}
-          className="max-h-[500px] w-auto max-w-full object-contain p-4 transition-opacity duration-300"
-        />
+        {src ? (
+          <img
+            src={src}
+            alt={`Analysis View - ${mode}`}
+            className="max-h-[500px] w-auto max-w-full object-contain p-4 transition-opacity duration-300"
+          />
+        ) : (
+          <div className="text-slate-500 text-sm">
+            No image available for {mode.toUpperCase()} view.
+          </div>
+        )}
 
         <div className="absolute bottom-4 right-4 px-3 py-1 bg-black/70 backdrop-blur text-white text-xs rounded-full border border-white/10">
           Showing: {mode.toUpperCase()}

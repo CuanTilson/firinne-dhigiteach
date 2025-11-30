@@ -3,7 +3,8 @@
 export type ClassificationType =
   | "likely_ai_generated"
   | "likely_real"
-  | "uncertain";
+  | "uncertain"
+  | "ai_generated_c2pa_flagged";
 
 export interface AnalysisResult {
   id?: number;
@@ -73,7 +74,6 @@ export interface AnalysisResult {
     mean_error: number;
     max_error: number;
     anomaly_score: number;
-    ela_heatmap: string | null;
   };
 
   forensic_score: number;
@@ -86,6 +86,7 @@ export interface AnalysisResult {
   };
 
   gradcam_heatmap: string | null;
+  ela_heatmap: string | null;
 
   raw_metadata: Record<string, unknown>;
   created_at: string;

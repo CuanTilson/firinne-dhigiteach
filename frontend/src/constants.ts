@@ -12,30 +12,36 @@ export const CLASSIFICATION_COLORS: Record<ClassificationType, string> = {
   likely_real: "text-green-400 bg-green-400/10 border-green-400/20",
   likely_ai_generated: "text-red-400 bg-red-400/10 border-red-400/20",
   uncertain: "text-yellow-400 bg-yellow-400/10 border-yellow-400/20",
+  ai_generated_c2pa_flagged: "text-red-400 bg-red-700/20 border-red-500/30",
 };
 
 export const CLASSIFICATION_LABELS: Record<ClassificationType, string> = {
   likely_real: "Likely Authentic",
   likely_ai_generated: "Likely AI Generated",
   uncertain: "Uncertain / Inconclusive",
+  ai_generated_c2pa_flagged: "AI (C2PA Flagged)",
 };
 
-export const fixPath = (p?: string | null) => {
-  if (!p || typeof p !== "string") return "";
+export const fixPath = (p?: string | null): string | undefined => {
+  if (!p || typeof p !== "string") return undefined;
 
+  // normalise backslashes
   let clean = p.replace(/\\/g, "/");
-  clean = clean.replace("backend/storage/", "");
 
-  if (clean.startsWith("uploaded/"))
-    return `${API_BASE_URL}/uploaded/${clean.replace("uploaded/", "")}`;
+  // strip any leading system path up to backend/storage/
+  clean = clean.replace(/.*backend\/storage\//, "");
 
-  if (clean.startsWith("ela/"))
-    return `${API_BASE_URL}/ela/${clean.replace("ela/", "")}`;
+  if (clean.startsWith("uploaded/")) {
+    return `${API_BASE_URL}/uploaded/${clean.slice("uploaded/".length)}`;
+  }
 
-  if (clean.startsWith("heatmaps/"))
-    return `${API_BASE_URL}/heatmaps/${clean.replace("heatmaps/", "")}`;
+  if (clean.startsWith("ela/")) {
+    return `${API_BASE_URL}/ela/${clean.slice("ela/".length)}`;
+  }
+
+  if (clean.startsWith("heatmaps/")) {
+    return `${API_BASE_URL}/heatmaps/${clean.slice("heatmaps/".length)}`;
+  }
 
   return `${API_BASE_URL}/${clean}`;
 };
-
-

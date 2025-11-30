@@ -305,11 +305,11 @@ async def analyse_image(file: UploadFile = File(...)):
             "mean_error": ela_info["mean_error"],
             "max_error": ela_info["max_error"],
             "anomaly_score": ela_info["ela_anomaly_score"],
-            "ela_heatmap": ela_info["ela_image_path"],
         },
         "forensic_score": fused["final_score"],
         "classification": fused["classification"],
         "forensic_score_json": fused,
+        "ela_heatmap": ela_info["ela_image_path"],
         "gradcam_heatmap": str(heatmap_path),
         "raw_metadata": metadata,
     }

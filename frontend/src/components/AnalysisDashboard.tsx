@@ -22,9 +22,7 @@ export const AnalysisDashboard: React.FC<Props> = ({ result }) => {
         <div className="h-full">
           <HeatmapViewer
             elaUrl={
-              result.ela_analysis?.ela_heatmap
-                ? fixPath(result.ela_analysis.ela_heatmap)
-                : undefined
+              result.ela_heatmap ? fixPath(result.ela_heatmap) : undefined
             }
             gradCamUrl={
               result.gradcam_heatmap
