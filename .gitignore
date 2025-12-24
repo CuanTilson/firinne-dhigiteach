@@ -230,3 +230,27 @@ data/*
 # OS
 .DS_Store
 Thumbs.db
+
+# ================================
+# Fírinne Dhigiteach – Runtime Data
+# ================================
+
+# Uploaded user media
+backend/storage/uploaded/*
+backend/storage/ela/*
+backend/storage/heatmaps/*
+backend/storage/thumbnails/*
+
+# Keep directory structure
+!backend/storage/uploaded/.gitkeep
+!backend/storage/ela/.gitkeep
+!backend/storage/heatmaps/.gitkeep
+!backend/storage/thumbnails/.gitkeep
+
+# Database
+backend/database/*.db
+backend/database/*.sqlite
+
+# Frontend build & deps
+frontend/node_modules/
+frontend/dist/
