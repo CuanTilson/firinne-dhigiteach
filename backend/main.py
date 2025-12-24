@@ -165,6 +165,8 @@ async def analyse_image(file: UploadFile = File(...)):
     if not file.content_type.startswith("image/"):
         raise HTTPException(400, "Please upload an image file.")
 
+    errors: list[str] = []
+
     # -----------------------
     # Save file
     # -----------------------
@@ -187,15 +189,42 @@ async def analyse_image(file: UploadFile = File(...)):
 
     file_integrity = analyse_file_integrity(filepath)
 
-    ml = cnndetector.predict(filepath)
+    try:
+        ml = cnndetector.predict(filepath)
+        ml_prob = ml["probability"]
+    except Exception as e:
+        ml = {"label": "error", "tensor": None}
+        ml_prob = 0.5
+        errors.append(f"cnn_failed: {e}")
+
+    
     ml_prob = ml["probability"]
 
     metadata = extract_image_metadata(filepath)
     exif_result = exif_forensics(metadata)
 
     anomaly = analyse_image_metadata(metadata)
-    qtinfo = analyse_qtables(filepath)
-    noise_info = analyse_noise(filepath)
+    
+    try:
+        qtinfo = analyse_qtables(filepath)
+    except Exception as e:
+        qtinfo = {
+            "qtables_found": False,
+            "qtables": None,
+            "qtables_anomaly_score": 0.0,
+        }
+        errors.append(f"qtables_failed: {e}")
+
+    try:
+        noise_info = analyse_noise(filepath)
+    except Exception as e:
+        noise_info = {
+            "residual_variance": 0.0,
+            "spectral_flatness": 0.0,
+            "noise_anomaly_score": 0.0,
+        }
+        errors.append(f"noise_failed: {e}")
+
 
     watermark_info = detect_sd_watermark(filepath)
     sd_watermark_score = 1.0 if watermark_info["watermark_detected"] else 0.0
@@ -210,8 +239,18 @@ async def analyse_image(file: UploadFile = File(...)):
     )
 
     # ELA
-    ela_path = Path("backend/storage/ela") / f"{uuid.uuid4().hex}_ela.png"
-    ela_info = perform_ela(filepath, quality=90, scale_factor=20, save_path=ela_path)
+    try:
+        ela_path = Path("backend/storage/ela") / f"{uuid.uuid4().hex}_ela.png"
+        ela_info = perform_ela(filepath, quality=90, scale_factor=20, save_path=ela_path)
+    except Exception as e:
+        ela_info = {
+            "mean_error": 0.0,
+            "max_error": 0.0,
+            "ela_anomaly_score": 0.0,
+            "ela_image_path": None,
+        }
+        errors.append(f"ela_failed: {e}")
+    
 
     # Fuse all scores
     fused = fuse_forensic_scores(
@@ -226,9 +265,14 @@ async def analyse_image(file: UploadFile = File(...)):
     )
 
     # GradCAM
-    heatmap_path = Path("backend/storage/heatmaps") / f"{uuid.uuid4().hex}_gradcam.png"
-    cam = GradCAM(cnndetector.get_model(), cnndetector.get_target_layer())
-    cam.generate(ml["tensor"], filepath, heatmap_path)
+    try:
+        heatmap_path = Path("backend/storage/heatmaps") / f"{uuid.uuid4().hex}_gradcam.png"
+        cam = GradCAM(cnndetector.get_model(), cnndetector.get_target_layer())
+        cam.generate(ml["tensor"], filepath, heatmap_path)
+        gradcam_path = str(heatmap_path)
+    except Exception as e:
+        gradcam_path = None
+        errors.append(f"gradcam_failed: {e}")
 
     # -----------------------
     # Save to DB
@@ -274,6 +318,7 @@ async def analyse_image(file: UploadFile = File(...)):
         "ml_prediction": {"probability": ml_prob, "label": ml["label"]},
         "metadata_anomalies": anomaly,
         "exif_forensics": exif_result,
+        "errors": errors,
         "c2pa": {
             "has_c2pa": c2pa_info["has_c2pa"],
             "signature_valid": c2pa_info["signature_valid"],
