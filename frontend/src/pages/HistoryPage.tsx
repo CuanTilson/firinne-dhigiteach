@@ -8,12 +8,14 @@ import type {
 import { HistoryTable } from "../components/HistoryTable";
 import { Button } from "../components/ui/Button";
 import { Search, Filter, RefreshCw } from "lucide-react";
+import { DEFAULT_ADMIN_KEY } from "../constants";
 
 export const HistoryPage: React.FC = () => {
   const [records, setRecords] = useState<AnalysisRecordSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const [adminKey, setAdminKey] = useState<string>(DEFAULT_ADMIN_KEY);
 
   // Filter state
   const [filename, setFilename] = useState("");
@@ -48,8 +50,15 @@ export const HistoryPage: React.FC = () => {
 
   const handleDelete = async (id: number) => {
     if (!window.confirm("Are you sure you want to delete this record?")) return;
+    let key = adminKey;
+    if (!key) {
+      const entered = window.prompt("Enter admin key to delete this record:");
+      if (!entered) return;
+      key = entered;
+      setAdminKey(entered);
+    }
     try {
-      await deleteRecord(id);
+      await deleteRecord(id, key);
       fetchData(); // Refresh
     } catch {
       alert("Failed to delete");
