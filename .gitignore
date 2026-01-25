@@ -1,4 +1,4 @@
-# Byte-compiled / optimized / DLL files
+﻿# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
 *$py.class
@@ -232,7 +232,7 @@ data/*
 Thumbs.db
 
 # ================================
-# Fírinne Dhigiteach – Runtime Data
+# Fírinne Dhigiteach - Runtime Data
 # ================================
 
 # Uploaded user media
@@ -254,3 +254,4 @@ backend/database/*.sqlite
 # Frontend build & deps
 frontend/node_modules/
 frontend/dist/
+
