@@ -1,9 +1,13 @@
-import React, { useState, useRef } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { UploadCloud, AlertCircle } from "lucide-react";
 import { detectImage } from "../services/api";
 import type { AnalysisResult } from "../types";
 import { AnalysisDashboard } from "../components/AnalysisDashboard";
 import { Button } from "../components/ui/Button";
+
+let activeAnalysisPromise: Promise<AnalysisResult> | null = null;
+let activeAnalysisFile: File | null = null;
+let activeAnalysisPreview: string | null = null;
 
 export const UploadPage: React.FC = () => {
   const [file, setFile] = useState<File | null>(null);
@@ -12,6 +16,29 @@ export const UploadPage: React.FC = () => {
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!activeAnalysisPromise) return;
+
+    setFile(activeAnalysisFile);
+    setPreview(activeAnalysisPreview);
+    setLoading(true);
+    setError(null);
+
+    activeAnalysisPromise
+      .then((data) => {
+        setResult(data);
+      })
+      .catch(() => {
+        setError("Failed to analyse image. Please ensure backend is running.");
+      })
+      .finally(() => {
+        setLoading(false);
+        activeAnalysisPromise = null;
+        activeAnalysisFile = null;
+        activeAnalysisPreview = null;
+      });
+  }, []);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -35,17 +62,24 @@ export const UploadPage: React.FC = () => {
   };
 
   const handleAnalyse = async () => {
-    if (!file) return;
+    if (!file || loading) return;
     setLoading(true);
     setError(null);
+    setResult(null);
+    activeAnalysisFile = file;
+    activeAnalysisPreview = preview;
 
     try {
-      const data = await detectImage(file);
+      activeAnalysisPromise = detectImage(file);
+      const data = await activeAnalysisPromise;
       setResult(data);
     } catch {
       setError("Failed to analyse image. Please ensure backend is running.");
     } finally {
       setLoading(false);
+      activeAnalysisPromise = null;
+      activeAnalysisFile = null;
+      activeAnalysisPreview = null;
     }
   };
 
@@ -53,6 +87,11 @@ export const UploadPage: React.FC = () => {
     setFile(null);
     setPreview(null);
     setResult(null);
+    setError(null);
+    setLoading(false);
+    activeAnalysisPromise = null;
+    activeAnalysisFile = null;
+    activeAnalysisPreview = null;
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
@@ -111,9 +150,11 @@ export const UploadPage: React.FC = () => {
                   className="hidden"
                   accept="image/*"
                 />
-                <Button onClick={() => fileInputRef.current?.click()}>
-                  Browse Files
-                </Button>
+                <div className="flex justify-center">
+                  <Button onClick={() => fileInputRef.current?.click()}>
+                    Browse Files
+                  </Button>
+                </div>
               </div>
             )}
           </div>
