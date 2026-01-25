@@ -1,4 +1,4 @@
-from fastapi import (
+﻿from fastapi import (
     FastAPI,
     UploadFile,
     File,
@@ -15,6 +15,9 @@ from sqlalchemy.orm import Session
 from pathlib import Path
 import shutil
 import uuid
+import os
+from datetime import datetime
+from dotenv import load_dotenv
 
 # ---------------------------
 # Local Imports (organised)
@@ -23,11 +26,7 @@ import uuid
 # Storage + DB
 from backend.database.db import Base, engine, SessionLocal
 from backend.database.models import AnalysisRecord
-from backend.database.schemas import (
-    AnalysisSummary,
-    AnalysisDetail,
-    PaginatedAnalysisSummary,
-)
+from backend.database.schemas import AnalysisDetail, PaginatedAnalysisSummary
 
 # Upload handling
 from backend.analysis.upload import save_uploaded_file, UPLOAD_DIR
@@ -56,6 +55,8 @@ from backend.explainability.gradcam import GradCAM
 
 # ---------------------------
 # Setup
+# Load environment variables from .env (if present)
+load_dotenv()
 # ---------------------------
 
 WEIGHTS = Path("vendor/CNNDetection/weights/blur_jpg_prob0.5.pth")
@@ -64,14 +65,18 @@ Path("backend/storage/heatmaps").mkdir(parents=True, exist_ok=True)
 THUMB_DIR = Path("backend/storage/thumbnails")
 THUMB_DIR.mkdir(parents=True, exist_ok=True)
 
-ADMIN_KEY = "secret-admin-key"
+ADMIN_KEY = os.getenv("FD_ADMIN_KEY", "secret-admin-key")
+ALLOWED_ORIGINS = os.getenv("FD_CORS_ORIGINS", "*")
+ALLOWED_ORIGINS_LIST = ["*"] if ALLOWED_ORIGINS == "*" else [
+    origin.strip() for origin in ALLOWED_ORIGINS.split(",") if origin.strip()
+]
 
 app = FastAPI(title="Fírinne Dhigiteach API")
 
 # CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS_LIST,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -96,6 +101,10 @@ app.mount(
 Base.metadata.create_all(bind=engine)
 
 # Load ML model once
+if not WEIGHTS.is_file():
+    raise RuntimeError(
+        f"Missing CNNDetection weights at {WEIGHTS}. See README for download steps."
+    )
 cnndetector = CNNDetectionModel(weights_path=WEIGHTS)
 
 
@@ -135,13 +144,22 @@ def health():
 @app.post("/media/upload")
 async def upload_media(file: UploadFile = File(...)):
     saved_path = save_uploaded_file(file)
-    return {"status": "success", "filename": file.filename, "saved_to": str(saved_path)}
+    original_name = Path(file.filename or "").name
+    return {
+        "status": "success",
+        "filename": original_name,
+        "saved_to": str(saved_path),
+    }
 
 
 @app.post("/media/metadata")
 async def analyse_media(file: UploadFile = File(...)):
     saved_path = save_uploaded_file(file)
-    ext = Path(file.filename).suffix.lower()
+    original_name = Path(file.filename or "").name
+    if not original_name:
+        raise HTTPException(400, "Missing filename.")
+
+    ext = Path(original_name).suffix.lower()
 
     if ext in {".jpg", ".jpeg", ".png"}:
         metadata = extract_image_metadata(saved_path)
@@ -149,7 +167,7 @@ async def analyse_media(file: UploadFile = File(...)):
         metadata = extract_video_metadata(saved_path)
 
     return {
-        "filename": file.filename,
+        "filename": original_name,
         "path": str(saved_path),
         "metadata": metadata,
     }
@@ -161,20 +179,27 @@ async def analyse_media(file: UploadFile = File(...)):
 
 
 @app.post("/analysis/image")
-async def analyse_image(file: UploadFile = File(...)):
-    if not file.content_type.startswith("image/"):
+async def analyse_image(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    if not (file.content_type or "").startswith("image/"):
         raise HTTPException(400, "Please upload an image file.")
 
     # -----------------------
     # Save file
     # -----------------------
-    suffix = Path(file.filename).suffix or ".png"
+    original_name = Path(file.filename or "").name
+    if not original_name:
+        raise HTTPException(400, "Missing filename.")
+
+    suffix = Path(original_name).suffix or ".png"
     filepath = UPLOAD_DIR / f"{uuid.uuid4().hex}{suffix}"
 
     with filepath.open("wb") as f:
         shutil.copyfileobj(file.file, f)
 
-    # Generate 128×128 thumbnail
+    # Generate 128x128 thumbnail
     thumb_path = THUMB_DIR / f"{uuid.uuid4().hex}_thumb.jpg"
 
     with Image.open(filepath) as img:
@@ -233,9 +258,8 @@ async def analyse_image(file: UploadFile = File(...)):
     # -----------------------
     # Save to DB
     # -----------------------
-    session = SessionLocal()
     record = AnalysisRecord(
-        filename=file.filename,
+        filename=original_name,
         saved_path=str(filepath),
         thumbnail_path=str(thumb_path),
         ml_probability=ml_prob,
@@ -257,17 +281,17 @@ async def analyse_image(file: UploadFile = File(...)):
         ela_analysis=ela_info,
     )
 
-    session.add(record)
-    session.commit()
+    db.add(record)
+    db.commit()
+    db.refresh(record)
     created_at = record.created_at
-    session.close()
 
     # -----------------------
     # Return API response
     # -----------------------
     return {
         "detector": "CNNDetection + GradCAM + Forensic Fusion + C2PA",
-        "input_file": file.filename,
+        "input_file": original_name,
         "saved_path": str(filepath),
         "created_at": created_at.isoformat(),
         "file_integrity": file_integrity,
@@ -330,6 +354,14 @@ def list_analysis(
     date_to: str | None = None,
     db: Session = Depends(get_db),
 ):
+    def parse_iso_date(value: str, field: str) -> datetime:
+        try:
+            return datetime.fromisoformat(value)
+        except ValueError as exc:
+            raise HTTPException(
+                400, f"Invalid {field} date. Use ISO 8601 format."
+            ) from exc
+
     offset = (page - 1) * limit
     q = db.query(AnalysisRecord)
 
@@ -340,10 +372,10 @@ def list_analysis(
         q = q.filter(AnalysisRecord.filename.ilike(f"%{filename}%"))
 
     if date_from:
-        q = q.filter(AnalysisRecord.created_at >= date_from)
+        q = q.filter(AnalysisRecord.created_at >= parse_iso_date(date_from, "date_from"))
 
     if date_to:
-        q = q.filter(AnalysisRecord.created_at <= date_to)
+        q = q.filter(AnalysisRecord.created_at <= parse_iso_date(date_to, "date_to"))
 
     records = (
         q.order_by(AnalysisRecord.created_at.desc()).offset(offset).limit(limit).all()
@@ -421,3 +453,5 @@ def delete_analysis(
     db.commit()
 
     return {"status": "deleted", "id": record_id}
+
+
