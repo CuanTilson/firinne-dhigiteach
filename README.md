@@ -1,12 +1,12 @@
-# Fírinne Dhigiteach – Deepfake & Digital Media Forensics
+﻿# Fírinne Dhigiteach - Deepfake & Digital Media Forensics
 
-### Prototype System for Image Authenticity Analysis
+## Prototype System for Image Authenticity Analysis
 
 This project is a forensic analysis pipeline for detecting AI-generated images using a combination of:
 
-- CNN‐based deepfake detection
+- CNN-based deepfake detection
 - GradCAM visual explainability
-- Metadata & EXIF forensics
+- Metadata and EXIF forensics
 - JPEG structure and Q-table analysis
 - Error Level Analysis (ELA)
 - Noise residual analysis
@@ -17,31 +17,31 @@ This project is a forensic analysis pipeline for detecting AI-generated images u
 
 ---
 
-# 1. Project Structure
+## 1. Project Structure
 
 ```
 backend/
-  ├── analysis/
-  ├── models/
-  ├── explainability/
-  ├── database/
-  ├── storage/
-  │     ├── uploaded/
-  │     ├── ela/
-  │     ├── heatmaps/
-  │     └── thumbnails/
-  ├── main.py
-  └── ...
+  |-- analysis/
+  |-- models/
+  |-- explainability/
+  |-- database/
+  |-- storage/
+  |   |-- uploaded/
+  |   |-- ela/
+  |   |-- heatmaps/
+  |   `-- thumbnails/
+  |-- main.py
+  `-- ...
 
 frontend/
-  └── (Vite + React + Tailwind)
+  `-- (Vite + React + Tailwind)
 vendor/
-  └── CNNDetection/ (submodule)
+  `-- CNNDetection/ (submodule)
 ```
 
 ---
 
-# 2. Requirements
+## 2. Requirements
 
 ### Backend (Python)
 
@@ -58,7 +58,7 @@ vendor/
 
 ---
 
-# 3. Backend Setup (Python + FastAPI)
+## 3. Backend Setup (Python + FastAPI)
 
 ### 3.1 Create and activate the virtual environment
 
@@ -124,7 +124,7 @@ http://localhost:8000/redoc
 
 ---
 
-# 4. CNNDetection Model Setup (Vendor Submodule)
+## 4. CNNDetection Model Setup (Vendor Submodule)
 
 You included CNNDetection as a **git submodule** under `vendor/`.
 https://github.com/PeterWang512/CNNDetection
@@ -187,7 +187,7 @@ exists.
 
 ---
 
-# 5. Frontend Setup (React + Vite)
+## 5. Frontend Setup (React + Vite)
 
 ### 5.1 Install dependencies
 
@@ -226,17 +226,11 @@ The frontend reads the backend URL from:
 frontend/src/constants.ts
 ```
 
-Default:
-
-```ts
-export const API_BASE_URL = "http://localhost:8000";
-```
-
-Change only if backend runs elsewhere.
+Default is `http://localhost:8000`. Set `VITE_API_BASE_URL` to override.
 
 ---
 
-# 6. Running the Full System
+## 6. Running the Full System
 
 ### Backend (terminal 1)
 
@@ -261,7 +255,23 @@ http://localhost:5173/
 
 ---
 
-# 7. Features Implemented
+## 7. Configuration
+
+### Backend
+
+- `FD_ADMIN_KEY` sets the admin key for delete operations (defaults to `secret-admin-key`).
+- `FD_CORS_ORIGINS` sets allowed CORS origins. Use `*` to allow all or a comma-separated list.
+- Copy `backend/.env.example` to `backend/.env` for local dev.
+
+### Frontend
+
+- `VITE_API_BASE_URL` overrides the backend URL (defaults to `http://localhost:8000`).
+- `VITE_ADMIN_KEY` pre-fills the admin key used by delete actions.
+- Copy `frontend/.env.example` to `frontend/.env` for local dev.
+
+---
+
+## 8. Features Implemented
 
 - CNN-based real-vs-AI classification
 - GradCAM heatmap generation
@@ -280,17 +290,17 @@ http://localhost:5173/
 
 ---
 
-# 8. Folder Overview
+## 9. Folder Overview
 
 ### Backend
 
 ```
-backend/main.py                  → main FastAPI app
-backend/analysis/                → forensic modules
-backend/models/                  → CNN model loader
-backend/explainability/          → GradCAM generator
-backend/database/                → DB and ORM
-backend/storage/                 → uploaded files + output heatmaps
+backend/main.py                  -> main FastAPI app
+backend/analysis/                -> forensic modules
+backend/models/                  -> CNN model loader
+backend/explainability/          -> GradCAM generator
+backend/database/                -> DB and ORM
+backend/storage/                 -> uploaded files + output heatmaps
 ```
 
 ### Frontend
@@ -307,12 +317,12 @@ frontend/src/
 ### Vendor
 
 ```
-vendor/CNNDetection/             → third-party detection model
+vendor/CNNDetection/             -> third-party detection model
 ```
 
 ---
 
-# 9. Useful Commands
+## 10. Useful Commands
 
 ### Regenerate DB (fresh start)
 
