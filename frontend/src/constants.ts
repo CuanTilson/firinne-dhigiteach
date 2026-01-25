@@ -1,6 +1,8 @@
 import type { ClassificationType } from "./types";
 
-export const API_BASE_URL = "http://localhost:8000";
+export const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
+export const DEFAULT_ADMIN_KEY = import.meta.env.VITE_ADMIN_KEY ?? "";
 
 export const API_ENDPOINTS = {
   DETECT: `${API_BASE_URL}/analysis/image`,
