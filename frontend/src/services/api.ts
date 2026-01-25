@@ -1,4 +1,4 @@
-import { API_ENDPOINTS, API_BASE_URL } from "../constants";
+import { API_ENDPOINTS, API_BASE_URL, DEFAULT_ADMIN_KEY } from "../constants";
 import type { AnalysisRecordSummary, AnalysisResult, PaginatedResponse, RecordFilters } from '../types';
 
 /**
@@ -69,13 +69,15 @@ export const getRecordById = async (id: number): Promise<AnalysisResult> => {
 /**
  * Deletes a record (Admin)
  */
-export const deleteRecord = async (id: number): Promise<void> => {
+export const deleteRecord = async (
+  id: number,
+  adminKey?: string
+): Promise<void> => {
+  const resolvedKey = adminKey ?? DEFAULT_ADMIN_KEY;
   try {
     const response = await fetch(`${API_ENDPOINTS.RECORDS}/${id}`, {
       method: 'DELETE',
-      headers: {
-        'admin-key': 'secret-admin-key', // Hardcoded for demo, normally env var or input
-      },
+      headers: resolvedKey ? { 'admin-key': resolvedKey } : undefined,
     });
     if (!response.ok) throw new Error("Failed to delete record");
   } catch (error) {
