@@ -9,7 +9,7 @@
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.staticfiles import StaticFiles
 
-from PIL import Image
+from PIL import Image, ImageOps
 
 from sqlalchemy.orm import Session
 from pathlib import Path
@@ -17,6 +17,7 @@ import shutil
 import uuid
 import os
 from datetime import datetime
+import asyncio
 from dotenv import load_dotenv
 
 # ---------------------------
@@ -55,8 +56,8 @@ from backend.explainability.gradcam import GradCAM
 
 # ---------------------------
 # Setup
-# Load environment variables from .env (if present)
-load_dotenv()
+# Load environment variables from backend/.env (if present)
+load_dotenv(dotenv_path=Path(__file__).resolve().parent / ".env")
 # ---------------------------
 
 WEIGHTS = Path("vendor/CNNDetection/weights/blur_jpg_prob0.5.pth")
@@ -119,6 +120,69 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def run_full_analysis(filepath: Path) -> dict:
+    file_integrity = analyse_file_integrity(filepath)
+
+    ml = cnndetector.predict(filepath)
+    ml_prob = ml["probability"]
+
+    metadata = extract_image_metadata(filepath)
+    exif_result = exif_forensics(metadata)
+
+    anomaly = analyse_image_metadata(metadata)
+    qtinfo = analyse_qtables(filepath)
+    noise_info = analyse_noise(filepath)
+
+    watermark_info = detect_sd_watermark(filepath)
+    sd_watermark_score = 1.0 if watermark_info["watermark_detected"] else 0.0
+
+    c2pa_info = analyse_c2pa(filepath)
+    c2pa_ai_flag = c2pa_info["has_c2pa"] and (
+        c2pa_info["overall_c2pa_score"] >= 0.95
+        or len(c2pa_info["ai_assertions_found"]) > 0
+        or "iptc:compositeWithTrainedAlgorithmicMedia"
+        in c2pa_info.get("digital_source_types", [])
+        or "photo assist" in c2pa_info.get("software_agents", [])
+    )
+
+    ela_path = Path("backend/storage/ela") / f"{uuid.uuid4().hex}_ela.png"
+    ela_info = perform_ela(filepath, quality=90, scale_factor=20, save_path=ela_path)
+
+    fused = fuse_forensic_scores(
+        ml_prob,
+        anomaly["anomaly_score"],
+        c2pa_info["overall_c2pa_score"],
+        c2pa_ai_flag,
+        ela_info["ela_anomaly_score"],
+        noise_info["noise_anomaly_score"],
+        qtinfo["qtables_anomaly_score"],
+        sd_watermark_score,
+    )
+
+    heatmap_path = Path("backend/storage/heatmaps") / f"{uuid.uuid4().hex}_gradcam.png"
+    cam = GradCAM(cnndetector.get_model(), cnndetector.get_target_layer())
+    cam.generate(ml["tensor"], filepath, heatmap_path)
+
+    return {
+        "file_integrity": file_integrity,
+        "ml": ml,
+        "ml_prob": ml_prob,
+        "metadata": metadata,
+        "exif_result": exif_result,
+        "anomaly": anomaly,
+        "qtinfo": qtinfo,
+        "noise_info": noise_info,
+        "watermark_info": watermark_info,
+        "sd_watermark_score": sd_watermark_score,
+        "c2pa_info": c2pa_info,
+        "c2pa_ai_flag": c2pa_ai_flag,
+        "ela_info": ela_info,
+        "ela_path": ela_path,
+        "fused": fused,
+        "heatmap_path": heatmap_path,
+    }
 
 
 # ---------------------------
@@ -203,6 +267,7 @@ async def analyse_image(
     thumb_path = THUMB_DIR / f"{uuid.uuid4().hex}_thumb.jpg"
 
     with Image.open(filepath) as img:
+        img = ImageOps.exif_transpose(img)
         img.thumbnail((128, 128))
         img.save(thumb_path, "JPEG")
 
@@ -210,50 +275,21 @@ async def analyse_image(
     # Run all analysis stages
     # -----------------------
 
-    file_integrity = analyse_file_integrity(filepath)
-
-    ml = cnndetector.predict(filepath)
-    ml_prob = ml["probability"]
-
-    metadata = extract_image_metadata(filepath)
-    exif_result = exif_forensics(metadata)
-
-    anomaly = analyse_image_metadata(metadata)
-    qtinfo = analyse_qtables(filepath)
-    noise_info = analyse_noise(filepath)
-
-    watermark_info = detect_sd_watermark(filepath)
-    sd_watermark_score = 1.0 if watermark_info["watermark_detected"] else 0.0
-
-    c2pa_info = analyse_c2pa(filepath)
-    c2pa_ai_flag = c2pa_info["has_c2pa"] and (
-        c2pa_info["overall_c2pa_score"] >= 0.95
-        or len(c2pa_info["ai_assertions_found"]) > 0
-        or "iptc:compositeWithTrainedAlgorithmicMedia"
-        in c2pa_info.get("digital_source_types", [])
-        or "photo assist" in c2pa_info.get("software_agents", [])
-    )
-
-    # ELA
-    ela_path = Path("backend/storage/ela") / f"{uuid.uuid4().hex}_ela.png"
-    ela_info = perform_ela(filepath, quality=90, scale_factor=20, save_path=ela_path)
-
-    # Fuse all scores
-    fused = fuse_forensic_scores(
-        ml_prob,
-        anomaly["anomaly_score"],
-        c2pa_info["overall_c2pa_score"],
-        c2pa_ai_flag,
-        ela_info["ela_anomaly_score"],
-        noise_info["noise_anomaly_score"],
-        qtinfo["qtables_anomaly_score"],
-        sd_watermark_score,
-    )
-
-    # GradCAM
-    heatmap_path = Path("backend/storage/heatmaps") / f"{uuid.uuid4().hex}_gradcam.png"
-    cam = GradCAM(cnndetector.get_model(), cnndetector.get_target_layer())
-    cam.generate(ml["tensor"], filepath, heatmap_path)
+    analysis = await asyncio.to_thread(run_full_analysis, filepath)
+    file_integrity = analysis["file_integrity"]
+    ml = analysis["ml"]
+    ml_prob = analysis["ml_prob"]
+    metadata = analysis["metadata"]
+    exif_result = analysis["exif_result"]
+    anomaly = analysis["anomaly"]
+    qtinfo = analysis["qtinfo"]
+    noise_info = analysis["noise_info"]
+    watermark_info = analysis["watermark_info"]
+    c2pa_info = analysis["c2pa_info"]
+    c2pa_ai_flag = analysis["c2pa_ai_flag"]
+    ela_info = analysis["ela_info"]
+    heatmap_path = analysis["heatmap_path"]
+    fused = analysis["fused"]
 
     # -----------------------
     # Save to DB
