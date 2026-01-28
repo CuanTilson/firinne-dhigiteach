@@ -1,11 +1,14 @@
 import React, { useEffect, useState, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import { UploadCloud, AlertCircle } from "lucide-react";
-import { detectImage } from "../services/api";
-import type { AnalysisResult } from "../types";
+import { detectImage, detectVideo } from "../services/api";
+import type { AnalysisResult, VideoAnalysisDetail } from "../types";
 import { AnalysisDashboard } from "../components/AnalysisDashboard";
 import { Button } from "../components/ui/Button";
 
-let activeAnalysisPromise: Promise<AnalysisResult> | null = null;
+let activeAnalysisPromise: Promise<AnalysisResult | VideoAnalysisDetail> | null =
+  null;
+let activeAnalysisType: "image" | "video" | null = null;
 let activeAnalysisFile: File | null = null;
 let activeAnalysisPreview: string | null = null;
 
@@ -16,6 +19,7 @@ export const UploadPage: React.FC = () => {
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const navigate = useNavigate();
 
   useEffect(() => {
     if (!activeAnalysisPromise) return;
@@ -27,18 +31,24 @@ export const UploadPage: React.FC = () => {
 
     activeAnalysisPromise
       .then((data) => {
-        setResult(data);
+        if (activeAnalysisType === "video") {
+          const video = data as VideoAnalysisDetail;
+          navigate(`/videos/${video.id}`);
+          return;
+        }
+        setResult(data as AnalysisResult);
       })
       .catch(() => {
-        setError("Failed to analyse image. Please ensure backend is running.");
+        setError("Failed to analyse media. Please ensure backend is running.");
       })
       .finally(() => {
         setLoading(false);
         activeAnalysisPromise = null;
+        activeAnalysisType = null;
         activeAnalysisFile = null;
         activeAnalysisPreview = null;
       });
-  }, []);
+  }, [navigate]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -68,16 +78,24 @@ export const UploadPage: React.FC = () => {
     setResult(null);
     activeAnalysisFile = file;
     activeAnalysisPreview = preview;
+    const isVideo = (file.type || "").startsWith("video/");
+    activeAnalysisType = isVideo ? "video" : "image";
 
     try {
-      activeAnalysisPromise = detectImage(file);
+      activeAnalysisPromise = isVideo ? detectVideo(file) : detectImage(file);
       const data = await activeAnalysisPromise;
-      setResult(data);
+      if (isVideo) {
+        const video = data as VideoAnalysisDetail;
+        navigate(`/videos/${video.id}`);
+      } else {
+        setResult(data as AnalysisResult);
+      }
     } catch {
-      setError("Failed to analyse image. Please ensure backend is running.");
+      setError("Failed to analyse media. Please ensure backend is running.");
     } finally {
       setLoading(false);
       activeAnalysisPromise = null;
+      activeAnalysisType = null;
       activeAnalysisFile = null;
       activeAnalysisPreview = null;
     }
@@ -90,6 +108,7 @@ export const UploadPage: React.FC = () => {
     setError(null);
     setLoading(false);
     activeAnalysisPromise = null;
+    activeAnalysisType = null;
     activeAnalysisFile = null;
     activeAnalysisPreview = null;
     if (fileInputRef.current) fileInputRef.current.value = "";
@@ -101,8 +120,8 @@ export const UploadPage: React.FC = () => {
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-white mb-2">New Analysis</h1>
         <p className="text-slate-400">
-          Upload an image to detect AI-generated content, manipulate artifacts,
-          and metadata anomalies.
+          Upload an image or video to detect AI-generated content, manipulate
+          artifacts, and metadata anomalies.
         </p>
       </div>
 
@@ -121,14 +140,22 @@ export const UploadPage: React.FC = () => {
           >
             {preview ? (
               <div className="relative group">
-                <img
-                  src={preview}
-                  alt="Preview"
-                  className="max-h-[300px] rounded-lg shadow-xl"
-                />
+                {(file?.type || "").startsWith("video/") ? (
+                  <video
+                    src={preview}
+                    controls
+                    className="max-h-[300px] rounded-lg shadow-xl"
+                  />
+                ) : (
+                  <img
+                    src={preview}
+                    alt="Preview"
+                    className="max-h-[300px] rounded-lg shadow-xl"
+                  />
+                )}
                 <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-lg">
                   <Button variant="secondary" onClick={reset}>
-                    Change Image
+                    Change File
                   </Button>
                 </div>
               </div>
@@ -138,17 +165,18 @@ export const UploadPage: React.FC = () => {
                   <UploadCloud size={40} />
                 </div>
                 <h3 className="text-xl font-semibold text-slate-200 mb-2">
-                  Drag & Drop Image
+                  Drag & Drop Media
                 </h3>
                 <p className="text-slate-500 mb-6 max-w-sm mx-auto">
-                  Supported formats: JPEG, PNG, WEBP, TIFF. Max file size: 25MB.
+                  Supported formats: JPEG, PNG, WEBP, TIFF, MP4, MOV. Max file
+                  size: 200MB, max length: 3 minutes.
                 </p>
                 <input
                   type="file"
                   ref={fileInputRef}
                   onChange={handleFileChange}
                   className="hidden"
-                  accept="image/*"
+                  accept="image/*,video/*"
                 />
                 <div className="flex justify-center">
                   <Button onClick={() => fileInputRef.current?.click()}>
@@ -174,7 +202,7 @@ export const UploadPage: React.FC = () => {
             <div className="mt-8 text-center">
               <div className="inline-block animate-spin rounded-full h-10 w-10 border-4 border-cyan-500 border-r-transparent mb-4"></div>
               <h3 className="text-xl font-medium text-slate-200">
-                Analysing Image Structure...
+                Analysing {file?.type?.startsWith("video/") ? "Video" : "Image"}...
               </h3>
               <p className="text-slate-500 mt-2">
                 Running CNN detection, ELA, and metadata extraction.
