@@ -240,12 +240,14 @@ backend/storage/uploaded/*
 backend/storage/ela/*
 backend/storage/heatmaps/*
 backend/storage/thumbnails/*
+backend/storage/video_frames/*
 
 # Keep directory structure
 !backend/storage/uploaded/.gitkeep
 !backend/storage/ela/.gitkeep
 !backend/storage/heatmaps/.gitkeep
 !backend/storage/thumbnails/.gitkeep
+!backend/storage/video_frames/.gitkeep
 
 # Database
 backend/database/*.db
