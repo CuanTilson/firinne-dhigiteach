@@ -48,7 +48,10 @@ export const HistoryPage: React.FC = () => {
     fetchData();
   }, [fetchData]);
 
-  const handleDelete = async (id: number) => {
+  const handleDelete = async (
+    id: number,
+    mediaType: AnalysisRecordSummary["media_type"]
+  ) => {
     if (!window.confirm("Are you sure you want to delete this record?")) return;
     let key = adminKey;
     if (!key) {
@@ -58,7 +61,7 @@ export const HistoryPage: React.FC = () => {
       setAdminKey(entered);
     }
     try {
-      await deleteRecord(id, key);
+      await deleteRecord(id, key, mediaType);
       fetchData(); // Refresh
     } catch {
       alert("Failed to delete");
