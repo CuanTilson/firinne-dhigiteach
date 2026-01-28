@@ -34,3 +34,22 @@ class AnalysisRecord(Base):
     ela_analysis = Column(JSON)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class VideoAnalysisRecord(Base):
+    __tablename__ = "video_analysis_records"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    filename = Column(String)
+    saved_path = Column(String)
+    thumbnail_path = Column(String)
+
+    forensic_score = Column(Float)
+    classification = Column(String)
+
+    frame_count = Column(Integer)
+    frames_json = Column(JSON)
+    video_metadata = Column(JSON)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
