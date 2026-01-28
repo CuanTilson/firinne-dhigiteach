@@ -6,7 +6,9 @@ export const DEFAULT_ADMIN_KEY = import.meta.env.VITE_ADMIN_KEY ?? "";
 
 export const API_ENDPOINTS = {
   DETECT: `${API_BASE_URL}/analysis/image`,
+  DETECT_VIDEO: `${API_BASE_URL}/analysis/video`,
   RECORDS: `${API_BASE_URL}/analysis`,
+  VIDEO_RECORDS: `${API_BASE_URL}/analysis/video`,
   STATIC: `${API_BASE_URL}/static`,
 };
 
@@ -43,6 +45,10 @@ export const fixPath = (p?: string | null): string | undefined => {
 
   if (clean.startsWith("heatmaps/")) {
     return `${API_BASE_URL}/heatmaps/${clean.slice("heatmaps/".length)}`;
+  }
+
+  if (clean.startsWith("video_frames/")) {
+    return `${API_BASE_URL}/video_frames/${clean.slice("video_frames/".length)}`;
   }
 
   return `${API_BASE_URL}/${clean}`;

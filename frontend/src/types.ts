@@ -6,6 +6,8 @@ export type ClassificationType =
   | "uncertain"
   | "ai_generated_c2pa_flagged";
 
+export type MediaType = "image" | "video";
+
 export interface AnalysisResult {
   id?: number;
 
@@ -101,6 +103,7 @@ export interface AnalysisRecordSummary {
   classification: ClassificationType;
   thumbnail_url: string;
   created_at: string;
+  media_type: MediaType;
 }
 
 
@@ -117,4 +120,22 @@ export interface RecordFilters {
   classification?: ClassificationType | "";
   date_from?: string;
   date_to?: string;
+}
+
+export interface VideoFrameResult extends AnalysisResult {
+  frame_index: number;
+  timestamp_sec: number;
+}
+
+export interface VideoAnalysisDetail {
+  id: number;
+  filename?: string;
+  saved_path?: string;
+  thumbnail_path?: string;
+  forensic_score: number;
+  classification: ClassificationType;
+  frame_count: number;
+  frames: VideoFrameResult[];
+  video_metadata?: Record<string, unknown>;
+  created_at: string;
 }
