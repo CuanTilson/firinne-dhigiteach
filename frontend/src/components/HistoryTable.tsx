@@ -1,14 +1,14 @@
-import React from "react";
+﻿import React from "react";
 import type { AnalysisRecordSummary } from "../types";
 import { Badge } from "./ui/Badge";
-import { Eye, Trash2, Calendar } from "lucide-react";
+import { Eye, Trash2, Calendar, Film } from "lucide-react";
 import { API_BASE_URL } from "../constants";
 import { Link } from "react-router-dom";
 
 interface Props {
   records: AnalysisRecordSummary[];
   loading: boolean;
-  onDelete: (id: number) => void;
+  onDelete: (id: number, mediaType: AnalysisRecordSummary["media_type"]) => void;
 }
 
 export const HistoryTable: React.FC<Props> = ({
@@ -47,11 +47,16 @@ export const HistoryTable: React.FC<Props> = ({
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-700">
-          {records.map((record) => (
-            <tr
-              key={record.id}
-              className="hover:bg-slate-700/50 transition-colors"
-            >
+          {records.map((record) => {
+            const detailPath =
+              record.media_type === "video"
+                ? `/videos/${record.id}`
+                : `/records/${record.id}`;
+            return (
+              <tr
+                key={record.id}
+                className="hover:bg-slate-700/50 transition-colors"
+              >
               <td className="px-6 py-3">
                 <div className="h-12 w-12 rounded bg-slate-900 overflow-hidden border border-slate-600">
                   <img
@@ -66,9 +71,14 @@ export const HistoryTable: React.FC<Props> = ({
                 </div>
               </td>
               <td className="px-6 py-3 font-medium text-slate-200">
-                {record.filename}
+                <div className="flex items-center gap-2">
+                  {record.media_type === "video" && (
+                    <Film size={14} className="text-cyan-400" />
+                  )}
+                  <span>{record.filename}</span>
+                </div>
                 <div className="text-xs text-slate-500 mt-0.5">
-                  ID: #{record.id}
+                  ID: #{record.id} - {record.media_type}
                 </div>
               </td>
               <td className="px-6 py-3">
@@ -83,14 +93,14 @@ export const HistoryTable: React.FC<Props> = ({
               <td className="px-6 py-3 text-right">
                 <div className="flex items-center justify-end gap-2">
                   <Link
-                    to={`/records/${record.id}`}
+                    to={detailPath}
                     className="p-2 text-cyan-400 hover:bg-cyan-900/30 rounded-full transition-colors"
                     title="View Details"
                   >
                     <Eye size={18} />
                   </Link>
                   <button
-                    onClick={() => onDelete(record.id)}
+                    onClick={() => onDelete(record.id, record.media_type)}
                     className="p-2 text-red-400 hover:bg-red-900/30 rounded-full transition-colors"
                     title="Delete Record"
                   >
@@ -98,10 +108,12 @@ export const HistoryTable: React.FC<Props> = ({
                   </button>
                 </div>
               </td>
-            </tr>
-          ))}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
   );
 };
+
