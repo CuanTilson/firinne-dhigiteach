@@ -1,5 +1,12 @@
 import { API_ENDPOINTS, API_BASE_URL, DEFAULT_ADMIN_KEY } from "../constants";
-import type { AnalysisRecordSummary, AnalysisResult, PaginatedResponse, RecordFilters } from '../types';
+import type {
+  AnalysisRecordSummary,
+  AnalysisResult,
+  MediaType,
+  PaginatedResponse,
+  RecordFilters,
+  VideoAnalysisDetail,
+} from "../types";
 
 /**
  * Uploads an image for forensic analysis
@@ -21,6 +28,30 @@ export const detectImage = async (file: File): Promise<AnalysisResult> => {
     return await response.json();
   } catch (error) {
     console.error("Detect API Error:", error);
+    throw error;
+  }
+};
+
+/**
+ * Uploads a video for forensic analysis
+ */
+export const detectVideo = async (file: File): Promise<VideoAnalysisDetail> => {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  try {
+    const response = await fetch(API_ENDPOINTS.DETECT_VIDEO, {
+      method: "POST",
+      body: formData,
+    });
+
+    if (!response.ok) {
+      throw new Error(`Video analysis failed: ${response.statusText}`);
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error("Video Detect API Error:", error);
     throw error;
   }
 };
@@ -67,15 +98,32 @@ export const getRecordById = async (id: number): Promise<AnalysisResult> => {
 };
 
 /**
+ * Fetches a single video record detail
+ */
+export const getVideoById = async (id: number): Promise<VideoAnalysisDetail> => {
+  try {
+    const response = await fetch(`${API_ENDPOINTS.VIDEO_RECORDS}/${id}`);
+    if (!response.ok) throw new Error("Failed to fetch video details");
+    return await response.json();
+  } catch (error) {
+    console.error("Get Video Detail Error:", error);
+    throw error;
+  }
+};
+
+/**
  * Deletes a record (Admin)
  */
 export const deleteRecord = async (
   id: number,
-  adminKey?: string
+  adminKey?: string,
+  mediaType: MediaType = "image"
 ): Promise<void> => {
   const resolvedKey = adminKey ?? DEFAULT_ADMIN_KEY;
   try {
-    const response = await fetch(`${API_ENDPOINTS.RECORDS}/${id}`, {
+    const endpoint =
+      mediaType === "video" ? API_ENDPOINTS.VIDEO_RECORDS : API_ENDPOINTS.RECORDS;
+    const response = await fetch(`${endpoint}/${id}`, {
       method: 'DELETE',
       headers: resolvedKey ? { 'admin-key': resolvedKey } : undefined,
     });
