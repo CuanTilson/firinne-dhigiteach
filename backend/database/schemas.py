@@ -10,6 +10,7 @@ class AnalysisSummary(BaseModel):
     classification: str
     created_at: datetime
     thumbnail_url: str
+    media_type: str
 
     class Config:
         orm_mode = True
@@ -56,3 +57,19 @@ class PaginatedAnalysisSummary(BaseModel):
     page: int
     limit: int
     total_pages: int
+
+
+class VideoAnalysisDetail(BaseModel):
+    id: int
+    filename: Optional[str]
+    saved_path: Optional[str]
+    thumbnail_path: Optional[str]
+    forensic_score: float
+    classification: str
+    frame_count: int
+    frames: list[Any]
+    video_metadata: Optional[Any]
+    created_at: datetime
+
+    class Config:
+        orm_mode = True
