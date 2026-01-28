@@ -26,8 +26,12 @@ from dotenv import load_dotenv
 
 # Storage + DB
 from backend.database.db import Base, engine, SessionLocal
-from backend.database.models import AnalysisRecord
-from backend.database.schemas import AnalysisDetail, PaginatedAnalysisSummary
+from backend.database.models import AnalysisRecord, VideoAnalysisRecord
+from backend.database.schemas import (
+    AnalysisDetail,
+    PaginatedAnalysisSummary,
+    VideoAnalysisDetail,
+)
 
 # Upload handling
 from backend.analysis.upload import save_uploaded_file, UPLOAD_DIR
@@ -48,6 +52,7 @@ from backend.analysis.forensics import (
 )
 from backend.analysis.c2pa_analyser import analyse_c2pa
 from backend.analysis.forensic_fusion import fuse_forensic_scores
+from backend.analysis.video import sample_video_frames, get_video_duration_seconds
 
 # ML model + explainability
 from backend.models.cnndetect_native import CNNDetectionModel
@@ -65,6 +70,8 @@ Path("backend/storage/ela").mkdir(parents=True, exist_ok=True)
 Path("backend/storage/heatmaps").mkdir(parents=True, exist_ok=True)
 THUMB_DIR = Path("backend/storage/thumbnails")
 THUMB_DIR.mkdir(parents=True, exist_ok=True)
+VIDEO_FRAMES_DIR = Path("backend/storage/video_frames")
+VIDEO_FRAMES_DIR.mkdir(parents=True, exist_ok=True)
 
 ADMIN_KEY = os.getenv("FD_ADMIN_KEY", "secret-admin-key")
 ALLOWED_ORIGINS = os.getenv("FD_CORS_ORIGINS", "*")
@@ -95,6 +102,11 @@ app.mount(
     "/thumbnails",
     StaticFiles(directory="backend/storage/thumbnails"),
     name="thumbnails",
+)
+app.mount(
+    "/video_frames",
+    StaticFiles(directory="backend/storage/video_frames"),
+    name="video_frames",
 )
 
 
@@ -182,6 +194,76 @@ def run_full_analysis(filepath: Path) -> dict:
         "ela_path": ela_path,
         "fused": fused,
         "heatmap_path": heatmap_path,
+    }
+
+
+def run_video_analysis(video_path: Path, max_frames: int = 16) -> dict:
+    frames_dir = VIDEO_FRAMES_DIR / uuid.uuid4().hex
+    frames = sample_video_frames(video_path, max_frames=max_frames, output_dir=frames_dir)
+    if not frames:
+        raise RuntimeError("No frames could be sampled from the video.")
+
+    frame_results = []
+    scores = []
+    c2pa_flagged = False
+
+    for frame in frames:
+        analysis = run_full_analysis(frame["frame_path"])
+        frame_result = {
+            "frame_index": frame["frame_index"],
+            "timestamp_sec": frame["timestamp_sec"],
+            "saved_path": str(frame["frame_path"]),
+            "created_at": datetime.utcnow().isoformat(),
+            "file_integrity": analysis["file_integrity"],
+            "ml_prediction": {
+                "probability": analysis["ml_prob"],
+                "label": analysis["ml"]["label"],
+            },
+            "metadata_anomalies": analysis["anomaly"],
+            "exif_forensics": analysis["exif_result"],
+            "c2pa": analysis["c2pa_info"],
+            "jpeg_qtables": analysis["qtinfo"],
+            "noise_residual": analysis["noise_info"],
+            "ai_watermark": {
+                "stable_diffusion_detected": analysis["watermark_info"][
+                    "watermark_detected"
+                ],
+                "confidence": analysis["watermark_info"]["confidence"],
+                "raw_string": analysis["watermark_info"].get("raw_watermark_string"),
+                "error": analysis["watermark_info"]["error"],
+            },
+            "ela_analysis": {
+                "mean_error": analysis["ela_info"]["mean_error"],
+                "max_error": analysis["ela_info"]["max_error"],
+                "anomaly_score": analysis["ela_info"]["ela_anomaly_score"],
+            },
+            "forensic_score": analysis["fused"]["final_score"],
+            "classification": analysis["fused"]["classification"],
+            "forensic_score_json": analysis["fused"],
+            "gradcam_heatmap": str(analysis["heatmap_path"]),
+            "ela_heatmap": analysis["ela_info"]["ela_image_path"],
+            "raw_metadata": analysis["metadata"],
+        }
+        frame_results.append(frame_result)
+        scores.append(analysis["fused"]["final_score"])
+        if analysis["fused"]["classification"] == "ai_generated_c2pa_flagged":
+            c2pa_flagged = True
+
+    avg_score = float(sum(scores) / len(scores)) if scores else 0.0
+    if c2pa_flagged:
+        classification = "ai_generated_c2pa_flagged"
+    elif avg_score > 0.7:
+        classification = "likely_ai_generated"
+    elif avg_score < 0.3:
+        classification = "likely_real"
+    else:
+        classification = "uncertain"
+
+    return {
+        "frames": frame_results,
+        "frame_count": len(frame_results),
+        "forensic_score": avg_score,
+        "classification": classification,
     }
 
 
@@ -375,6 +457,65 @@ async def analyse_image(
     }
 
 
+@app.post("/analysis/video", response_model=VideoAnalysisDetail)
+async def analyse_video(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    if not (file.content_type or "").startswith("video/"):
+        raise HTTPException(400, "Please upload a video file.")
+
+    original_name = Path(file.filename or "").name
+    if not original_name:
+        raise HTTPException(400, "Missing filename.")
+
+    saved_path = save_uploaded_file(file)
+    file_size = saved_path.stat().st_size
+    if file_size > 200 * 1024 * 1024:
+        raise HTTPException(400, "Video exceeds 200MB size limit.")
+
+    duration_seconds = get_video_duration_seconds(saved_path)
+    if duration_seconds > 180:
+        raise HTTPException(400, "Video exceeds 3 minute length limit.")
+    video_metadata = extract_video_metadata(saved_path)
+
+    analysis = await asyncio.to_thread(run_video_analysis, saved_path)
+
+    thumbnail_path = THUMB_DIR / f"{uuid.uuid4().hex}_video_thumb.jpg"
+    first_frame_path = Path(analysis["frames"][0]["saved_path"])
+    with Image.open(first_frame_path) as img:
+        img.thumbnail((128, 128))
+        img.save(thumbnail_path, "JPEG")
+
+    record = VideoAnalysisRecord(
+        filename=original_name,
+        saved_path=str(saved_path),
+        thumbnail_path=str(thumbnail_path),
+        forensic_score=analysis["forensic_score"],
+        classification=analysis["classification"],
+        frame_count=analysis["frame_count"],
+        frames_json=analysis["frames"],
+        video_metadata=video_metadata,
+    )
+
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+
+    return {
+        "id": record.id,
+        "filename": record.filename,
+        "saved_path": record.saved_path,
+        "thumbnail_path": record.thumbnail_path,
+        "forensic_score": record.forensic_score,
+        "classification": record.classification,
+        "frame_count": record.frame_count,
+        "frames": record.frames_json,
+        "video_metadata": record.video_metadata,
+        "created_at": record.created_at,
+    }
+
+
 # ---------------------------
 # Query + Delete Endpoints
 # ---------------------------
@@ -398,39 +539,62 @@ def list_analysis(
                 400, f"Invalid {field} date. Use ISO 8601 format."
             ) from exc
 
+    def apply_filters(query, model):
+        if classification:
+            query = query.filter(model.classification == classification)
+
+        if filename:
+            query = query.filter(model.filename.ilike(f"%{filename}%"))
+
+        if date_from:
+            query = query.filter(
+                model.created_at >= parse_iso_date(date_from, "date_from")
+            )
+
+        if date_to:
+            query = query.filter(
+                model.created_at <= parse_iso_date(date_to, "date_to")
+            )
+
+        return query
+
+    image_records = apply_filters(db.query(AnalysisRecord), AnalysisRecord).all()
+    video_records = apply_filters(
+        db.query(VideoAnalysisRecord), VideoAnalysisRecord
+    ).all()
+
+    combined = [
+        {
+            "id": r.id,
+            "filename": r.filename,
+            "forensic_score": r.forensic_score,
+            "classification": r.classification,
+            "created_at": r.created_at,
+            "thumbnail_url": f"/thumbnails/{Path(r.thumbnail_path).name}",
+            "media_type": "image",
+        }
+        for r in image_records
+    ] + [
+        {
+            "id": r.id,
+            "filename": r.filename,
+            "forensic_score": r.forensic_score,
+            "classification": r.classification,
+            "created_at": r.created_at,
+            "thumbnail_url": f"/thumbnails/{Path(r.thumbnail_path).name}",
+            "media_type": "video",
+        }
+        for r in video_records
+    ]
+
+    combined.sort(key=lambda item: item["created_at"], reverse=True)
+
+    total = len(combined)
     offset = (page - 1) * limit
-    q = db.query(AnalysisRecord)
-
-    if classification:
-        q = q.filter(AnalysisRecord.classification == classification)
-
-    if filename:
-        q = q.filter(AnalysisRecord.filename.ilike(f"%{filename}%"))
-
-    if date_from:
-        q = q.filter(AnalysisRecord.created_at >= parse_iso_date(date_from, "date_from"))
-
-    if date_to:
-        q = q.filter(AnalysisRecord.created_at <= parse_iso_date(date_to, "date_to"))
-
-    records = (
-        q.order_by(AnalysisRecord.created_at.desc()).offset(offset).limit(limit).all()
-    )
-
-    total = q.count()
+    paged = combined[offset : offset + limit]
 
     return {
-        "data": [
-            {
-                "id": r.id,
-                "filename": r.filename,
-                "forensic_score": r.forensic_score,
-                "classification": r.classification,
-                "created_at": r.created_at,
-                "thumbnail_url": f"/thumbnails/{Path(r.thumbnail_path).name}",
-            }
-            for r in records
-        ],
+        "data": paged,
         "total": total,
         "page": page,
         "limit": limit,
@@ -471,6 +635,29 @@ def get_analysis(record_id: int, db: Session = Depends(get_db)):
     }
 
 
+@app.get("/analysis/video/{record_id}", response_model=VideoAnalysisDetail)
+def get_video_analysis(record_id: int, db: Session = Depends(get_db)):
+    record = (
+        db.query(VideoAnalysisRecord).filter(VideoAnalysisRecord.id == record_id).first()
+    )
+
+    if not record:
+        raise HTTPException(404, "Record not found")
+
+    return {
+        "id": record.id,
+        "filename": record.filename,
+        "saved_path": record.saved_path,
+        "thumbnail_path": record.thumbnail_path,
+        "forensic_score": record.forensic_score,
+        "classification": record.classification,
+        "frame_count": record.frame_count,
+        "frames": record.frames_json,
+        "video_metadata": record.video_metadata,
+        "created_at": record.created_at,
+    }
+
+
 @app.delete("/analysis/{record_id}")
 def delete_analysis(
     record_id: int,
@@ -481,6 +668,28 @@ def delete_analysis(
         raise HTTPException(403, "Invalid admin key")
 
     record = db.query(AnalysisRecord).filter(AnalysisRecord.id == record_id).first()
+
+    if not record:
+        raise HTTPException(404, "Record not found")
+
+    db.delete(record)
+    db.commit()
+
+    return {"status": "deleted", "id": record_id}
+
+
+@app.delete("/analysis/video/{record_id}")
+def delete_video_analysis(
+    record_id: int,
+    admin_key: str = Header(None),
+    db: Session = Depends(get_db),
+):
+    if admin_key != ADMIN_KEY:
+        raise HTTPException(403, "Invalid admin key")
+
+    record = (
+        db.query(VideoAnalysisRecord).filter(VideoAnalysisRecord.id == record_id).first()
+    )
 
     if not record:
         raise HTTPException(404, "Record not found")
