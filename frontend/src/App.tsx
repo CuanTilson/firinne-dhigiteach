@@ -4,6 +4,7 @@ import { Layout } from "./components/Layout";
 import { UploadPage } from "./pages/UploadPage";
 import { HistoryPage } from "./pages/HistoryPage";
 import { DetailPage } from "./pages/DetailPage";
+import { VideoDetailPage } from "./pages/VideoDetailPage";
 
 const App: React.FC = () => {
   return (
@@ -13,6 +14,7 @@ const App: React.FC = () => {
           <Route index element={<UploadPage />} />
           <Route path="history" element={<HistoryPage />} />
           <Route path="records/:id" element={<DetailPage />} />
+          <Route path="videos/:id" element={<VideoDetailPage />} />
 
           {/* Redirect unknown routes */}
           <Route path="*" element={<Navigate to="/" replace />} />
