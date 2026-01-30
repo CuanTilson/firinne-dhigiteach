@@ -3,6 +3,7 @@ import numpy as np
 import cv2
 import os
 from PIL import Image, ImageChops, ExifTags
+import uuid
 
 # Optional import for SD invisible watermark detection
 try:
@@ -98,6 +99,38 @@ def analyse_noise(image_path: Path) -> dict:
     }
 
 
+def generate_noise_heatmap(
+    image_path: Path,
+    save_path: Path | None = None,
+    window_size: int = 16,
+) -> dict:
+    img = _load_gray(image_path)
+    residual = _noise_residual(img)
+
+    local_var = cv2.blur(residual ** 2, (window_size, window_size))
+    local_var = np.sqrt(np.clip(local_var, 0, None))
+
+    min_val = float(local_var.min())
+    max_val = float(local_var.max())
+    mean_val = float(local_var.mean())
+
+    heatmap_path = None
+    if save_path is not None:
+        norm = (local_var - min_val) / (max_val - min_val + 1e-8)
+        heat = (norm * 255).astype(np.uint8)
+        heat_color = cv2.applyColorMap(heat, cv2.COLORMAP_INFERNO)
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        cv2.imwrite(str(save_path), heat_color)
+        heatmap_path = str(save_path)
+
+    return {
+        "local_variance_min": min_val,
+        "local_variance_max": max_val,
+        "local_variance_mean": mean_val,
+        "noise_heatmap_path": heatmap_path,
+    }
+
+
 # ============================================================
 #  2. JPEG QTABLE ANALYSIS
 # ============================================================
@@ -163,6 +196,99 @@ def analyse_qtables(image_path: Path):
         "qtables_found": q is not None,
         "qtables": q,
         "qtables_anomaly_score": anomaly,
+    }
+
+
+def _estimate_quality_from_table(qtable) -> int | None:
+    try:
+        luma = np.array(qtable).reshape(8, 8)
+    except Exception:
+        return None
+
+    std = STANDARD_LIBJPEG_TABLES["std_luma"]
+    ratios = luma / (std + 1e-8)
+    scale = float(np.median(ratios) * 100.0)
+
+    if scale <= 0:
+        return None
+
+    if scale <= 100:
+        quality = int(round(5000 / scale))
+    else:
+        quality = int(round((200 - scale) / 2))
+
+    return int(min(100, max(1, quality)))
+
+
+def estimate_jpeg_quality(image_path: Path) -> dict:
+    qtables = _extract_qtables(image_path)
+    if qtables is None:
+        return {"quality_estimate": None}
+
+    tables = list(qtables.values())
+    if not tables:
+        return {"quality_estimate": None}
+
+    quality = _estimate_quality_from_table(tables[0])
+    return {"quality_estimate": quality}
+
+
+def jpeg_double_compression_heatmap(
+    image_path: Path,
+    save_path: Path | None = None,
+    qualities: list[int] | None = None,
+    max_size: int = 640,
+) -> dict:
+    qualities = qualities or [60, 70, 80, 90]
+    jpeg_path = _ensure_jpeg(image_path)
+
+    with Image.open(jpeg_path) as img:
+        img = apply_orientation(img).convert("RGB")
+        w, h = img.size
+        scale = min(1.0, max_size / max(w, h))
+        if scale < 1.0:
+            img = img.resize((int(w * scale), int(h * scale)))
+
+        original = np.array(img, dtype=np.float32)
+
+    diffs = []
+    tmp_paths = []
+    for q in qualities:
+        tmp_path = jpeg_path.with_suffix(f".q{q}.{uuid.uuid4().hex}.jpg")
+        tmp_paths.append(tmp_path)
+        Image.fromarray(original.astype(np.uint8)).save(tmp_path, "JPEG", quality=q)
+        recompressed = np.array(Image.open(tmp_path).convert("RGB"), dtype=np.float32)
+        diff = np.mean(np.abs(original - recompressed), axis=2)
+        diffs.append(diff)
+
+    diff_stack = np.stack(diffs, axis=2)
+    best_idx = np.argmin(diff_stack, axis=2)
+    best_quality = np.vectorize(lambda i: qualities[i])(best_idx)
+    flat = best_quality.flatten()
+    values, counts = np.unique(flat, return_counts=True)
+    mode_quality = int(values[np.argmax(counts)]) if len(values) else qualities[0]
+    inconsistency = float(np.mean(best_quality != mode_quality))
+
+    heatmap_path = None
+    if save_path is not None:
+        diff_map = np.abs(best_quality - mode_quality).astype(np.float32)
+        norm = diff_map / (np.max(diff_map) + 1e-8)
+        heat = (norm * 255).astype(np.uint8)
+        heat_color = cv2.applyColorMap(heat, cv2.COLORMAP_MAGMA)
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        cv2.imwrite(str(save_path), heat_color)
+        heatmap_path = str(save_path)
+
+    for tmp in tmp_paths:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+
+    return {
+        "mode_quality": mode_quality,
+        "inconsistency_score": inconsistency,
+        "jpeg_quality_heatmap_path": heatmap_path,
     }
 
 
