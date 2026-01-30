@@ -36,7 +36,7 @@ def fuse_forensic_scores(
     w_ela = 0.10
     w_noise = 0.10
     w_q = 0.05
-    w_sdwm = 0.05  # NEW: SD invisible watermark is a subtle but strong cue
+    w_sdwm = 0.02  # Optional invisible watermark is a weak supporting cue
 
     final_score = (
         (ml_prob * w_ml)
