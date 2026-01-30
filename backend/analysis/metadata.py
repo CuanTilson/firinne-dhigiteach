@@ -63,6 +63,25 @@ SAFE_TAGS = [
     "EXIF ProcessingSoftware",
 ]
 
+CAMERA_MAKE_WHITELIST = [
+    "canon",
+    "nikon",
+    "sony",
+    "fujifilm",
+    "panasonic",
+    "olympus",
+    "pentax",
+    "leica",
+    "samsung",
+    "apple",
+    "google",
+    "xiaomi",
+    "huawei",
+    "oppo",
+    "vivo",
+    "oneplus",
+]
+
 
 def _is_binary_string(s: str) -> bool:
     """Rough heuristic to detect non-text EXIF fields."""
@@ -102,6 +121,44 @@ def analyse_image_metadata(meta: dict) -> dict:
     return {
         "anomaly_score": min(score, 1.0),
         "findings": findings,
+    }
+
+
+def check_camera_model_consistency(meta: dict) -> dict:
+    warnings = []
+    score = 0.0
+
+    make_raw = str(meta.get("Image Make", "") or "").strip()
+    model_raw = str(meta.get("Image Model", "") or "").strip()
+    make = make_raw.lower()
+    model = model_raw.lower()
+
+    if not make_raw:
+        warnings.append("Missing camera make in metadata")
+        score += 0.2
+
+    if not model_raw:
+        warnings.append("Missing camera model in metadata")
+        score += 0.2
+
+    if make and not any(m in make for m in CAMERA_MAKE_WHITELIST):
+        warnings.append("Unknown camera manufacturer in metadata")
+        score += 0.2
+
+    if model_raw and len(model_raw) < 2:
+        warnings.append("Suspiciously short camera model")
+        score += 0.1
+
+    if make and model and any(m in make for m in CAMERA_MAKE_WHITELIST):
+        if make not in model and make not in ("apple", "google"):
+            warnings.append("Camera model does not include manufacturer name")
+            score += 0.1
+
+    return {
+        "score": min(score, 1.0),
+        "warnings": warnings,
+        "make": make_raw or None,
+        "model": model_raw or None,
     }
 
 
