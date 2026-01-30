@@ -241,6 +241,8 @@ backend/storage/ela/*
 backend/storage/heatmaps/*
 backend/storage/thumbnails/*
 backend/storage/video_frames/*
+backend/storage/noise/*
+backend/storage/jpeg_quality/*
 
 # Keep directory structure
 !backend/storage/uploaded/.gitkeep
@@ -248,6 +250,8 @@ backend/storage/video_frames/*
 !backend/storage/heatmaps/.gitkeep
 !backend/storage/thumbnails/.gitkeep
 !backend/storage/video_frames/.gitkeep
+!backend/storage/noise/.gitkeep
+!backend/storage/jpeg_quality/.gitkeep
 
 # Database
 backend/database/*.db
