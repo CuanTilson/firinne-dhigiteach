@@ -34,6 +34,12 @@ export interface AnalysisResult {
   metadata_anomalies: {
     anomaly_score: number;
     findings: string[];
+    camera_consistency?: {
+      score: number;
+      warnings: string[];
+      make?: string | null;
+      model?: string | null;
+    };
   };
 
   exif_forensics: {
@@ -51,18 +57,37 @@ export interface AnalysisResult {
     software_agents: string[];
     overall_c2pa_score: number;
     errors: string[];
+    claim_generator?: unknown;
+    signer?: string | null;
+    cert_issuer?: string | null;
+    signing_time?: string | null;
+    ingredients?: unknown[];
   };
 
   jpeg_qtables: {
     found: boolean;
     qtables: Record<string, number[]>;
     anomaly_score: number;
+    quality_estimate?: number | null;
+    double_compression?: {
+      mode_quality: number;
+      inconsistency_score: number;
+      jpeg_quality_heatmap_path?: string | null;
+    };
+    inconsistency_score?: number | null;
+    combined_anomaly_score?: number | null;
   };
 
   noise_residual: {
     variance: number;
     spectral_flatness: number;
     anomaly_score: number;
+    local_variance_min?: number | null;
+    local_variance_max?: number | null;
+    local_variance_mean?: number | null;
+    noise_heatmap_path?: string | null;
+    inconsistency_score?: number | null;
+    combined_anomaly_score?: number | null;
   };
 
   ai_watermark: {
