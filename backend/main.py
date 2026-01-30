@@ -41,6 +41,7 @@ from backend.analysis.metadata import (
     extract_image_metadata,
     extract_video_metadata,
     analyse_image_metadata,
+    check_camera_model_consistency,
     exif_forensics,
     analyse_file_integrity,
 )
@@ -49,6 +50,9 @@ from backend.analysis.forensics import (
     analyse_qtables,
     perform_ela,
     detect_sd_watermark,
+    generate_noise_heatmap,
+    estimate_jpeg_quality,
+    jpeg_double_compression_heatmap,
 )
 from backend.analysis.c2pa_analyser import analyse_c2pa
 from backend.analysis.forensic_fusion import fuse_forensic_scores
@@ -72,6 +76,10 @@ THUMB_DIR = Path("backend/storage/thumbnails")
 THUMB_DIR.mkdir(parents=True, exist_ok=True)
 VIDEO_FRAMES_DIR = Path("backend/storage/video_frames")
 VIDEO_FRAMES_DIR.mkdir(parents=True, exist_ok=True)
+NOISE_DIR = Path("backend/storage/noise")
+NOISE_DIR.mkdir(parents=True, exist_ok=True)
+JPEG_QUALITY_DIR = Path("backend/storage/jpeg_quality")
+JPEG_QUALITY_DIR.mkdir(parents=True, exist_ok=True)
 
 ADMIN_KEY = os.getenv("FD_ADMIN_KEY", "secret-admin-key")
 ALLOWED_ORIGINS = os.getenv("FD_CORS_ORIGINS", "*")
@@ -107,6 +115,12 @@ app.mount(
     "/video_frames",
     StaticFiles(directory="backend/storage/video_frames"),
     name="video_frames",
+)
+app.mount("/noise", StaticFiles(directory="backend/storage/noise"), name="noise")
+app.mount(
+    "/jpeg_quality",
+    StaticFiles(directory="backend/storage/jpeg_quality"),
+    name="jpeg_quality",
 )
 
 
@@ -144,8 +158,18 @@ def run_full_analysis(filepath: Path) -> dict:
     exif_result = exif_forensics(metadata)
 
     anomaly = analyse_image_metadata(metadata)
+    camera_consistency = check_camera_model_consistency(metadata)
+    anomaly["camera_consistency"] = camera_consistency
+    if camera_consistency["warnings"]:
+        anomaly["findings"].extend(camera_consistency["warnings"])
+    anomaly["anomaly_score"] = min(
+        1.0, anomaly["anomaly_score"] + camera_consistency["score"]
+    )
     qtinfo = analyse_qtables(filepath)
+    jpeg_quality = estimate_jpeg_quality(filepath)
     noise_info = analyse_noise(filepath)
+    noise_heatmap_path = NOISE_DIR / f"{uuid.uuid4().hex}_noise.png"
+    noise_heatmap = generate_noise_heatmap(filepath, save_path=noise_heatmap_path)
 
     watermark_info = detect_sd_watermark(filepath)
     sd_watermark_score = 1.0 if watermark_info["watermark_detected"] else 0.0
@@ -161,6 +185,36 @@ def run_full_analysis(filepath: Path) -> dict:
 
     ela_path = Path("backend/storage/ela") / f"{uuid.uuid4().hex}_ela.png"
     ela_info = perform_ela(filepath, quality=90, scale_factor=20, save_path=ela_path)
+    jpeg_quality_path = JPEG_QUALITY_DIR / f"{uuid.uuid4().hex}_jpegq.png"
+    jpeg_quality_local = jpeg_double_compression_heatmap(
+        filepath, save_path=jpeg_quality_path
+    )
+
+    jpeg_inconsistency = float(jpeg_quality_local.get("inconsistency_score") or 0.0)
+    qtinfo["quality_estimate"] = jpeg_quality["quality_estimate"]
+    qtinfo["double_compression"] = jpeg_quality_local
+    qtinfo["inconsistency_score"] = jpeg_inconsistency
+    qtinfo["combined_anomaly_score"] = max(
+        qtinfo["qtables_anomaly_score"], jpeg_inconsistency
+    )
+
+    local_min = float(noise_heatmap["local_variance_min"])
+    local_max = float(noise_heatmap["local_variance_max"])
+    noise_spread = (local_max - local_min) / (local_max + 1e-8)
+    noise_inconsistency = float(min(1.0, max(0.0, noise_spread)))
+
+    noise_info.update(
+        {
+            "local_variance_min": noise_heatmap["local_variance_min"],
+            "local_variance_max": noise_heatmap["local_variance_max"],
+            "local_variance_mean": noise_heatmap["local_variance_mean"],
+            "noise_heatmap_path": noise_heatmap["noise_heatmap_path"],
+            "inconsistency_score": noise_inconsistency,
+            "combined_anomaly_score": max(
+                noise_info["noise_anomaly_score"], noise_inconsistency
+            ),
+        }
+    )
 
     fused = fuse_forensic_scores(
         ml_prob,
@@ -169,7 +223,7 @@ def run_full_analysis(filepath: Path) -> dict:
         c2pa_ai_flag,
         ela_info["ela_anomaly_score"],
         noise_info["noise_anomaly_score"],
-        qtinfo["qtables_anomaly_score"],
+        qtinfo["combined_anomaly_score"],
         sd_watermark_score,
     )
 
@@ -194,6 +248,7 @@ def run_full_analysis(filepath: Path) -> dict:
         "ela_path": ela_path,
         "fused": fused,
         "heatmap_path": heatmap_path,
+        "camera_consistency": camera_consistency,
     }
 
 
@@ -372,6 +427,7 @@ async def analyse_image(
     ela_info = analysis["ela_info"]
     heatmap_path = analysis["heatmap_path"]
     fused = analysis["fused"]
+    camera_consistency = analysis["camera_consistency"]
 
     # -----------------------
     # Save to DB
@@ -426,16 +482,31 @@ async def analyse_image(
             "software_agents": c2pa_info["software_agents"],
             "overall_c2pa_score": c2pa_info["overall_c2pa_score"],
             "errors": c2pa_info["errors"],
+            "claim_generator": c2pa_info.get("claim_generator"),
+            "signer": c2pa_info.get("signer"),
+            "cert_issuer": c2pa_info.get("cert_issuer"),
+            "signing_time": c2pa_info.get("signing_time"),
+            "ingredients": c2pa_info.get("ingredients"),
         },
         "jpeg_qtables": {
             "found": qtinfo["qtables_found"],
             "qtables": qtinfo["qtables"],
             "anomaly_score": qtinfo["qtables_anomaly_score"],
+            "quality_estimate": qtinfo.get("quality_estimate"),
+            "double_compression": qtinfo.get("double_compression"),
+            "inconsistency_score": qtinfo.get("inconsistency_score"),
+            "combined_anomaly_score": qtinfo.get("combined_anomaly_score"),
         },
         "noise_residual": {
             "variance": noise_info["residual_variance"],
             "spectral_flatness": noise_info["spectral_flatness"],
             "anomaly_score": noise_info["noise_anomaly_score"],
+            "local_variance_min": noise_info.get("local_variance_min"),
+            "local_variance_max": noise_info.get("local_variance_max"),
+            "local_variance_mean": noise_info.get("local_variance_mean"),
+            "noise_heatmap_path": noise_info.get("noise_heatmap_path"),
+            "inconsistency_score": noise_info.get("inconsistency_score"),
+            "combined_anomaly_score": noise_info.get("combined_anomaly_score"),
         },
         "ai_watermark": {
             "stable_diffusion_detected": watermark_info["watermark_detected"],
@@ -453,6 +524,7 @@ async def analyse_image(
         "forensic_score_json": fused,
         "ela_heatmap": ela_info["ela_image_path"],
         "gradcam_heatmap": str(heatmap_path),
+        "camera_consistency": camera_consistency,
         "raw_metadata": metadata,
     }
 
