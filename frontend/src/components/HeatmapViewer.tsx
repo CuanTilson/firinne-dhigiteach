@@ -1,18 +1,22 @@
 import React, { useState } from "react";
-import { Eye, Layers, Zap } from "lucide-react";
+import { Eye, Layers, Zap, Activity, Aperture } from "lucide-react";
 
 interface HeatmapViewerProps {
   originalUrl?: string;
   elaUrl?: string;
   gradCamUrl?: string;
+  noiseUrl?: string;
+  jpegQualityUrl?: string;
 }
 
-type ViewMode = "original" | "ela" | "gradcam";
+type ViewMode = "original" | "ela" | "gradcam" | "noise" | "jpeg";
 
 export const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
   originalUrl,
   elaUrl,
   gradCamUrl,
+  noiseUrl,
+  jpegQualityUrl,
 }) => {
   const [mode, setMode] = useState<ViewMode>("original");
 
@@ -22,6 +26,10 @@ export const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
         return elaUrl;
       case "gradcam":
         return gradCamUrl;
+      case "noise":
+        return noiseUrl;
+      case "jpeg":
+        return jpegQualityUrl;
       default:
         return originalUrl;
     }
@@ -63,6 +71,26 @@ export const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
             }`}
           >
             <Zap size={14} /> GradCAM
+          </button>
+          <button
+            onClick={() => setMode("noise")}
+            className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-2 transition-colors ${
+              mode === "noise"
+                ? "bg-cyan-600 text-white"
+                : "text-slate-400 hover:text-slate-200 hover:bg-slate-800"
+            }`}
+          >
+            <Activity size={14} /> Noise
+          </button>
+          <button
+            onClick={() => setMode("jpeg")}
+            className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-2 transition-colors ${
+              mode === "jpeg"
+                ? "bg-cyan-600 text-white"
+                : "text-slate-400 hover:text-slate-200 hover:bg-slate-800"
+            }`}
+          >
+            <Aperture size={14} /> JPEG
           </button>
         </div>
       </div>
