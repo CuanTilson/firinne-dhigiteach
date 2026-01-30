@@ -29,6 +29,18 @@ export const AnalysisDashboard: React.FC<Props> = ({ result }) => {
                 ? fixPath(result.gradcam_heatmap)
                 : undefined
             }
+            noiseUrl={
+              result.noise_residual?.noise_heatmap_path
+                ? fixPath(result.noise_residual.noise_heatmap_path)
+                : undefined
+            }
+            jpegQualityUrl={
+              result.jpeg_qtables?.double_compression?.jpeg_quality_heatmap_path
+                ? fixPath(
+                    result.jpeg_qtables.double_compression.jpeg_quality_heatmap_path
+                  )
+                : undefined
+            }
             originalUrl={
               result.saved_path ? fixPath(result.saved_path) : undefined
             }
@@ -39,11 +51,13 @@ export const AnalysisDashboard: React.FC<Props> = ({ result }) => {
         <div className="flex flex-col gap-4 overflow-y-auto pr-2 custom-scrollbar">
           {/* Anomaly cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {/* Stable Diffusion */}
+            {/* Optional invisible watermark */}
             <div className="bg-slate-800 p-4 rounded-lg border border-slate-700">
               <div className="flex items-center gap-2 mb-2">
                 <Fingerprint className="text-cyan-400" size={20} />
-                <h4 className="font-semibold text-slate-200">SD Watermark</h4>
+                <h4 className="font-semibold text-slate-200">
+                  Invisible Watermark (optional)
+                </h4>
               </div>
 
               {result.ai_watermark?.stable_diffusion_detected ? (
@@ -99,6 +113,18 @@ export const AnalysisDashboard: React.FC<Props> = ({ result }) => {
                   )
                 )}
               </ul>
+            )}
+            {result.metadata_anomalies?.camera_consistency && (
+              <div className="mt-4 text-xs text-slate-400">
+                <div>
+                  Camera Make:{" "}
+                  {result.metadata_anomalies.camera_consistency.make || "Unknown"}
+                </div>
+                <div>
+                  Camera Model:{" "}
+                  {result.metadata_anomalies.camera_consistency.model || "Unknown"}
+                </div>
+              </div>
             )}
           </div>
 
