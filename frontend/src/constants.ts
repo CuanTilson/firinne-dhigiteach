@@ -51,5 +51,13 @@ export const fixPath = (p?: string | null): string | undefined => {
     return `${API_BASE_URL}/video_frames/${clean.slice("video_frames/".length)}`;
   }
 
+  if (clean.startsWith("noise/")) {
+    return `${API_BASE_URL}/noise/${clean.slice("noise/".length)}`;
+  }
+
+  if (clean.startsWith("jpeg_quality/")) {
+    return `${API_BASE_URL}/jpeg_quality/${clean.slice("jpeg_quality/".length)}`;
+  }
+
   return `${API_BASE_URL}/${clean}`;
 };
