@@ -1,16 +1,17 @@
 ﻿# Fírinne Dhigiteach - Deepfake & Digital Media Forensics
 
-## Prototype System for Image Authenticity Analysis
+## Prototype System for Image + Video Authenticity Analysis
 
-This project is a forensic analysis pipeline for detecting AI-generated images using a combination of:
+This project is a forensic analysis pipeline for detecting AI-generated or edited media using a combination of:
 
 - CNN-based deepfake detection
 - GradCAM visual explainability
 - Metadata and EXIF forensics
 - JPEG structure and Q-table analysis
+- JPEG quality estimation + double-compression localisation
 - Error Level Analysis (ELA)
-- Noise residual analysis
-- Stable Diffusion invisible watermark detection
+- Noise residual analysis + noise variance heatmaps
+- Optional invisible watermark detection (if present)
 - C2PA provenance verification
 - A forensic fusion algorithm combining all signals
 - A React-based frontend for interactive visualisation
@@ -29,7 +30,10 @@ backend/
   |   |-- uploaded/
   |   |-- ela/
   |   |-- heatmaps/
-  |   `-- thumbnails/
+  |   |-- thumbnails/
+  |   |-- video_frames/
+  |   |-- noise/
+  |   `-- jpeg_quality/
   |-- main.py
   `-- ...
 
@@ -103,6 +107,9 @@ backend/storage/uploaded
 backend/storage/ela
 backend/storage/heatmaps
 backend/storage/thumbnails
+backend/storage/video_frames
+backend/storage/noise
+backend/storage/jpeg_quality
 ```
 
 ---
@@ -278,8 +285,10 @@ http://localhost:5173/
 - Full EXIF + metadata inspection
 - JPEG structure analysis (SOI/EOI markers, APP segments, double compression)
 - JPEG quantisation table anomaly scoring
+- JPEG quality estimation + double-compression heatmap
 - Noise residual analysis (variance + spectral flatness)
-- Stable Diffusion watermark decoding
+- Noise variance heatmap
+- Optional invisible watermark decoding (if present)
 - Error Level Analysis (ELA) with preview heatmap
 - C2PA provenance extraction + AI-assertion detection
 - Forensic fusion scoring
@@ -287,6 +296,8 @@ http://localhost:5173/
 - React dashboard display with switchable heatmaps
 - Thumbnail history view
 - Case inspector with metadata and C2PA tabs
+- Video analysis with scene-aware frame sampling
+- Video detail view with per-frame results
 
 ---
 
@@ -322,7 +333,15 @@ vendor/CNNDetection/             -> third-party detection model
 
 ---
 
-## 10. Useful Commands
+## 10. Video Notes
+
+- Max file size: 200MB
+- Max duration: 3 minutes
+- Sampling: 16 frames with scene-aware prioritisation around cuts
+
+---
+
+## 11. Useful Commands
 
 ### Regenerate DB (fresh start)
 
@@ -334,6 +353,12 @@ rm backend/database/forensics.db
 
 ```bash
 curl -X POST -F "file=@test.jpg" http://localhost:8000/analysis/image
+```
+
+### Test video analysis manually
+
+```bash
+curl -X POST -F "file=@test.mp4" http://localhost:8000/analysis/video
 ```
 
 ### Check submodules
