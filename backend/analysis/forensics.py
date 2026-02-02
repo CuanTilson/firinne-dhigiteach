@@ -120,7 +120,8 @@ def generate_noise_heatmap(
         heat = (norm * 255).astype(np.uint8)
         heat_color = cv2.applyColorMap(heat, cv2.COLORMAP_INFERNO)
         save_path.parent.mkdir(parents=True, exist_ok=True)
-        cv2.imwrite(str(save_path), heat_color)
+        heat_rgb = cv2.cvtColor(heat_color, cv2.COLOR_BGR2RGB)
+        Image.fromarray(heat_rgb).save(save_path)
         heatmap_path = str(save_path)
 
     return {
@@ -276,7 +277,8 @@ def jpeg_double_compression_heatmap(
         heat = (norm * 255).astype(np.uint8)
         heat_color = cv2.applyColorMap(heat, cv2.COLORMAP_MAGMA)
         save_path.parent.mkdir(parents=True, exist_ok=True)
-        cv2.imwrite(str(save_path), heat_color)
+        heat_rgb = cv2.cvtColor(heat_color, cv2.COLOR_BGR2RGB)
+        Image.fromarray(heat_rgb).save(save_path)
         heatmap_path = str(save_path)
 
     for tmp in tmp_paths:
