@@ -266,13 +266,20 @@ http://localhost:5173/
 
 ### Backend
 
-- `FD_ADMIN_KEY` sets the admin key for delete operations (defaults to `secret-admin-key`).
+- `FD_ADMIN_KEY` sets the admin key for delete operations (required unless `FD_ALLOW_INSECURE_ADMIN_KEY=1`).
+- `FD_ALLOW_INSECURE_ADMIN_KEY=1` allows the legacy default admin key (not recommended for online use).
+- `FD_API_KEY` enables an API key check via `x-api-key` header on all endpoints.
+- `FD_RATE_LIMIT_PER_MINUTE` rate limits requests per client IP (set `0` to disable).
+- `FD_MAX_IMAGE_MB`, `FD_MAX_VIDEO_MB`, `FD_MAX_UPLOAD_MB` set upload size limits.
+- `FD_RETENTION_DAYS` auto-deletes records and files older than N days (0 disables).
+- `FD_RETENTION_INTERVAL_HOURS` controls cleanup interval for retention tasks.
 - `FD_CORS_ORIGINS` sets allowed CORS origins. Use `*` to allow all or a comma-separated list.
 - Copy `backend/.env.example` to `backend/.env` for local dev.
 
 ### Frontend
 
 - `VITE_API_BASE_URL` overrides the backend URL (defaults to `http://localhost:8000`).
+- `VITE_API_KEY` sets the API key header for backend requests.
 - `VITE_ADMIN_KEY` pre-fills the admin key used by delete actions.
 - Copy `frontend/.env.example` to `frontend/.env` for local dev.
 
@@ -298,6 +305,7 @@ http://localhost:5173/
 - Case inspector with metadata and C2PA tabs
 - Video analysis with scene-aware frame sampling
 - Video detail view with per-frame results
+- PDF report generation for image and video analyses
 
 ---
 
@@ -359,6 +367,25 @@ curl -X POST -F "file=@test.jpg" http://localhost:8000/analysis/image
 
 ```bash
 curl -X POST -F "file=@test.mp4" http://localhost:8000/analysis/video
+```
+
+### Start async video analysis (returns job id)
+
+```bash
+curl -X POST -F "file=@test.mp4" http://localhost:8000/analysis/video/async
+```
+
+### Check job status
+
+```bash
+curl http://localhost:8000/jobs/{job_id}
+```
+
+### Download a PDF report
+
+```bash
+curl http://localhost:8000/analysis/{id}/report.pdf -o report.pdf
+curl http://localhost:8000/analysis/video/{id}/report.pdf -o video_report.pdf
 ```
 
 ### Check submodules
