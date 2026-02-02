@@ -164,3 +164,14 @@ export interface VideoAnalysisDetail {
   video_metadata?: Record<string, unknown>;
   created_at: string;
 }
+
+export interface VideoJobStatus {
+  id: string;
+  status: "queued" | "running" | "completed" | "failed";
+  created_at?: string;
+  started_at?: string;
+  finished_at?: string;
+  filename?: string;
+  result?: VideoAnalysisDetail;
+  error?: string;
+}
