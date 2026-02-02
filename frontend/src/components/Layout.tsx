@@ -1,10 +1,18 @@
 import React, { useEffect, useState } from "react";
-import { NavLink, Outlet } from "react-router-dom";
-import { ScanFace, LayoutDashboard, History } from "lucide-react";
-import { checkBackend } from "../services/api";
+import { NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
+import { ScanFace, LayoutDashboard, History, X, Film } from "lucide-react";
+import { checkBackend, getVideoJob } from "../services/api";
 
 export const Layout: React.FC = () => {
   const [online, setOnline] = useState<boolean | null>(null);
+  const [jobToast, setJobToast] = useState<{
+    jobId: string;
+    status: string;
+    filename?: string;
+    resultId?: number;
+  } | null>(null);
+  const navigate = useNavigate();
+  const location = useLocation();
 
   useEffect(() => {
     const runCheck = async () => {
@@ -17,6 +25,70 @@ export const Layout: React.FC = () => {
     // optional: repeat check every 10 seconds
     const interval = setInterval(runCheck, 10000);
     return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    const readJob = () => {
+      try {
+        const raw = localStorage.getItem("fd_video_job");
+        if (!raw) return null;
+        return JSON.parse(raw) as {
+          jobId: string;
+          status: string;
+          filename?: string;
+          resultId?: number;
+          mediaType?: "video" | "image";
+          previewUrl?: string | null;
+        };
+      } catch {
+        return null;
+      }
+    };
+
+    const writeJob = (value: Record<string, unknown> | null) => {
+      try {
+        if (!value) {
+          localStorage.removeItem("fd_video_job");
+        } else {
+          localStorage.setItem("fd_video_job", JSON.stringify(value));
+        }
+      } catch {
+        // ignore storage errors
+      }
+    };
+
+    const tick = async () => {
+      const job = readJob();
+      if (!job?.jobId) {
+        setJobToast(null);
+        return;
+      }
+
+      setJobToast(job);
+      if (job.status === "completed" || job.status === "failed") {
+        return;
+      }
+
+      try {
+        const status = await getVideoJob(job.jobId);
+        const updated = {
+          jobId: job.jobId,
+          status: status.status,
+          filename: status.filename || job.filename,
+          resultId: status.result?.id ?? job.resultId,
+          mediaType: job.mediaType,
+          previewUrl: job.previewUrl,
+        };
+        writeJob(updated);
+        setJobToast(updated);
+      } catch {
+        // keep last known state
+      }
+    };
+
+    tick();
+    const interval = window.setInterval(tick, 2000);
+    return () => window.clearInterval(interval);
   }, []);
 
   return (
@@ -87,6 +159,45 @@ export const Layout: React.FC = () => {
       <main className="grow overflow-auto bg-slate-950">
         <Outlet />
       </main>
+
+      {jobToast && location.pathname !== "/" && (
+        <div className="fixed bottom-6 right-6 z-50 w-[320px] bg-slate-900 border border-slate-700 rounded-xl shadow-xl p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-sm text-slate-300 flex items-center gap-2">
+                <Film size={14} className="text-cyan-400" />
+                Video Analysis
+              </div>
+              <div className="text-xs text-slate-500 mt-1">
+                {jobToast.filename || "Processing video"}
+              </div>
+            </div>
+            <button
+              onClick={() => {
+                setJobToast(null);
+              }}
+              className="text-slate-400 hover:text-slate-200"
+              title="Dismiss"
+            >
+              <X size={16} />
+            </button>
+          </div>
+          <div className="mt-3 text-sm text-slate-300">
+            Status:{" "}
+            <span className="text-cyan-300 font-medium">
+              {jobToast.status}
+            </span>
+          </div>
+          {jobToast.status === "completed" && jobToast.resultId && (
+            <button
+              onClick={() => navigate(`/videos/${jobToast.resultId}`)}
+              className="mt-3 w-full px-3 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-sm font-medium"
+            >
+              View Results
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 };
