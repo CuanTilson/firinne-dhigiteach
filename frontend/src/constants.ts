@@ -2,13 +2,16 @@ import type { ClassificationType } from "./types";
 
 export const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
+export const API_KEY = import.meta.env.VITE_API_KEY ?? "";
 export const DEFAULT_ADMIN_KEY = import.meta.env.VITE_ADMIN_KEY ?? "";
 
 export const API_ENDPOINTS = {
   DETECT: `${API_BASE_URL}/analysis/image`,
   DETECT_VIDEO: `${API_BASE_URL}/analysis/video`,
+  DETECT_VIDEO_ASYNC: `${API_BASE_URL}/analysis/video/async`,
   RECORDS: `${API_BASE_URL}/analysis`,
   VIDEO_RECORDS: `${API_BASE_URL}/analysis/video`,
+  JOBS: `${API_BASE_URL}/jobs`,
   STATIC: `${API_BASE_URL}/static`,
 };
 
