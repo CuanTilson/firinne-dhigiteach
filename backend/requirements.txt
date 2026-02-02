@@ -12,3 +12,4 @@ numpy
 c2pa-python
 invisible-watermark
 sqlalchemy
+reportlab
