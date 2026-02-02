@@ -12,8 +12,7 @@ class AnalysisSummary(BaseModel):
     thumbnail_url: str
     media_type: str
 
-    class Config:
-        orm_mode = True
+    model_config = {"from_attributes": True}
 
 
 class AnalysisDetail(BaseModel):
@@ -47,8 +46,7 @@ class AnalysisDetail(BaseModel):
 
     created_at: datetime
 
-    class Config:
-        orm_mode = True
+    model_config = {"from_attributes": True}
 
 
 class PaginatedAnalysisSummary(BaseModel):
@@ -71,5 +69,4 @@ class VideoAnalysisDetail(BaseModel):
     video_metadata: Optional[Any]
     created_at: datetime
 
-    class Config:
-        orm_mode = True
+    model_config = {"from_attributes": True}
