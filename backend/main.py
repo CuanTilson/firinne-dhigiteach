@@ -7,16 +7,25 @@
     Header,
 )
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 from starlette.staticfiles import StaticFiles
+from starlette.requests import Request
 
 from PIL import Image, ImageOps
+
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.utils import ImageReader
+from reportlab.pdfgen import canvas
 
 from sqlalchemy.orm import Session
 from sqlalchemy import select, literal, union_all, func
 from pathlib import Path
+import io
+import time
+from collections import deque
 import uuid
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 import asyncio
 from dotenv import load_dotenv
 
@@ -112,6 +121,10 @@ ALLOWED_ORIGINS_LIST = ["*"] if ALLOWED_ORIGINS == "*" else [
 MAX_IMAGE_MB = float(os.getenv("FD_MAX_IMAGE_MB", "20"))
 MAX_VIDEO_MB = float(os.getenv("FD_MAX_VIDEO_MB", "200"))
 MAX_UPLOAD_MB = float(os.getenv("FD_MAX_UPLOAD_MB", "200"))
+API_KEY = os.getenv("FD_API_KEY")
+RATE_LIMIT_PER_MINUTE = int(os.getenv("FD_RATE_LIMIT_PER_MINUTE", "60"))
+RETENTION_DAYS = int(os.getenv("FD_RETENTION_DAYS", "0"))
+RETENTION_INTERVAL_HOURS = int(os.getenv("FD_RETENTION_INTERVAL_HOURS", "24"))
 app = FastAPI(title="Fírinne Dhigiteach API")
 
 # CORS
@@ -171,6 +184,53 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def _get_client_ip(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    if request.client:
+        return request.client.host
+    return "unknown"
+
+
+_rate_limit_buckets: dict[str, deque[float]] = {}
+
+
+def _rate_limit_allowed(client_id: str) -> bool:
+    if RATE_LIMIT_PER_MINUTE <= 0:
+        return True
+    now = time.time()
+    window = 60.0
+    bucket = _rate_limit_buckets.get(client_id)
+    if bucket is None:
+        bucket = deque()
+        _rate_limit_buckets[client_id] = bucket
+    while bucket and bucket[0] <= now - window:
+        bucket.popleft()
+    if len(bucket) >= RATE_LIMIT_PER_MINUTE:
+        return False
+    bucket.append(now)
+    return True
+
+
+@app.middleware("http")
+async def auth_and_rate_limit(request: Request, call_next):
+    path = request.url.path
+    if path in {"/health", "/openapi.json"} or path.startswith("/docs") or path.startswith("/redoc"):
+        return await call_next(request)
+
+    if API_KEY:
+        provided = request.headers.get("x-api-key")
+        if provided != API_KEY:
+            return Response(status_code=401, content="Invalid API key.")
+
+    client_id = _get_client_ip(request)
+    if not _rate_limit_allowed(client_id):
+        return Response(status_code=429, content="Rate limit exceeded.")
+
+    return await call_next(request)
 
 
 def _mb_to_bytes(value: float) -> int:
@@ -260,6 +320,47 @@ def _cleanup_storage_paths(paths: set[Path]) -> None:
                 folder.rmdir()
         except OSError:
             pass
+
+
+def _delete_analysis_record(record: AnalysisRecord, db: Session, commit: bool = True) -> None:
+    paths: set[Path] = set()
+    for value in (
+        record.saved_path,
+        record.thumbnail_path,
+        record.gradcam_heatmap,
+        record.ela_heatmap,
+        record.forensic_score_json,
+        record.ml_prediction,
+        record.metadata_anomalies,
+        record.metadata_json,
+        record.file_integrity,
+        record.ai_watermark,
+        record.exif_forensics,
+        record.c2pa,
+        record.jpeg_qtables,
+        record.noise_residual,
+        record.ela_analysis,
+    ):
+        _collect_storage_paths(value, paths)
+    _cleanup_storage_paths(paths)
+    db.delete(record)
+    if commit:
+        db.commit()
+
+
+def _delete_video_record(record: VideoAnalysisRecord, db: Session, commit: bool = True) -> None:
+    paths: set[Path] = set()
+    for value in (
+        record.saved_path,
+        record.thumbnail_path,
+        record.frames_json,
+        record.video_metadata,
+    ):
+        _collect_storage_paths(value, paths)
+    _cleanup_storage_paths(paths)
+    db.delete(record)
+    if commit:
+        db.commit()
 
 
 def run_full_analysis(filepath: Path) -> dict:
@@ -436,6 +537,259 @@ def run_video_analysis(video_path: Path, max_frames: int = 16) -> dict:
     }
 
 
+_jobs: dict[str, dict] = {}
+_jobs_lock = asyncio.Lock()
+
+
+async def _set_job(job_id: str, **updates) -> None:
+    async with _jobs_lock:
+        job = _jobs.get(job_id, {"id": job_id})
+        job.update(updates)
+        _jobs[job_id] = job
+
+
+async def _run_video_job(job_id: str, saved_path: Path, original_name: str) -> None:
+    await _set_job(job_id, status="running", started_at=datetime.utcnow().isoformat())
+    try:
+        analysis = await asyncio.to_thread(run_video_analysis, saved_path)
+        video_metadata = extract_video_metadata(saved_path)
+
+        thumbnail_path = THUMB_DIR / f"{uuid.uuid4().hex}_video_thumb.jpg"
+        first_frame_path = Path(analysis["frames"][0]["saved_path"])
+        with Image.open(first_frame_path) as img:
+            img.thumbnail((128, 128))
+            img.save(thumbnail_path, "JPEG")
+
+        db = SessionLocal()
+        try:
+            record = VideoAnalysisRecord(
+                filename=original_name,
+                saved_path=str(saved_path),
+                thumbnail_path=str(thumbnail_path),
+                forensic_score=analysis["forensic_score"],
+                classification=analysis["classification"],
+                frame_count=analysis["frame_count"],
+                frames_json=analysis["frames"],
+                video_metadata=video_metadata,
+            )
+            db.add(record)
+            db.commit()
+            db.refresh(record)
+        finally:
+            db.close()
+
+        result = {
+            "id": record.id,
+            "filename": record.filename,
+            "saved_path": record.saved_path,
+            "thumbnail_path": record.thumbnail_path,
+            "forensic_score": record.forensic_score,
+            "classification": record.classification,
+            "frame_count": record.frame_count,
+            "frames": record.frames_json,
+            "video_metadata": record.video_metadata,
+            "created_at": record.created_at,
+        }
+
+        await _set_job(
+            job_id,
+            status="completed",
+            finished_at=datetime.utcnow().isoformat(),
+            result=result,
+        )
+    except Exception as exc:
+        saved_path.unlink(missing_ok=True)
+        await _set_job(
+            job_id,
+            status="failed",
+            finished_at=datetime.utcnow().isoformat(),
+            error=str(exc),
+        )
+
+
+def _purge_old_records(days: int) -> int:
+    if days <= 0:
+        return 0
+    cutoff = datetime.utcnow() - timedelta(days=days)
+    db = SessionLocal()
+    try:
+        image_records = (
+            db.query(AnalysisRecord).filter(AnalysisRecord.created_at < cutoff).all()
+        )
+        video_records = (
+            db.query(VideoAnalysisRecord)
+            .filter(VideoAnalysisRecord.created_at < cutoff)
+            .all()
+        )
+        for record in image_records:
+            _delete_analysis_record(record, db, commit=False)
+        for record in video_records:
+            _delete_video_record(record, db, commit=False)
+        db.commit()
+        return len(image_records) + len(video_records)
+    finally:
+        db.close()
+
+
+async def _retention_loop() -> None:
+    if RETENTION_DAYS <= 0:
+        return
+    while True:
+        await asyncio.to_thread(_purge_old_records, RETENTION_DAYS)
+        await asyncio.sleep(max(1, RETENTION_INTERVAL_HOURS) * 3600)
+
+
+def _safe_text(value) -> str:
+    if value is None:
+        return "-"
+    return str(value)
+
+
+def _draw_wrapped_text(pdf: canvas.Canvas, text: str, x: float, y: float, max_width: float) -> float:
+    words = text.split()
+    if not words:
+        return y
+    line = words[0]
+    for word in words[1:]:
+        candidate = f"{line} {word}"
+        if pdf.stringWidth(candidate, "Helvetica", 10) <= max_width:
+            line = candidate
+        else:
+            pdf.drawString(x, y, line)
+            y -= 14
+            line = word
+    pdf.drawString(x, y, line)
+    return y - 14
+
+
+def _try_add_image(
+    pdf: canvas.Canvas,
+    path_value: str | None,
+    x: float,
+    y: float,
+    max_w: float,
+    max_h: float,
+) -> float:
+    if not path_value:
+        return y
+    path = _coerce_storage_path(path_value)
+    if not path or not path.exists():
+        return y
+    try:
+        img = ImageReader(str(path))
+        pdf.drawImage(img, x, y - max_h, width=max_w, height=max_h, preserveAspectRatio=True, anchor="c")
+        return y - max_h - 10
+    except Exception:
+        return y
+
+
+def _build_image_report_pdf(record: AnalysisRecord) -> bytes:
+    buffer = io.BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=A4)
+    width, height = A4
+    y = height - 40
+
+    pdf.setFont("Helvetica-Bold", 16)
+    pdf.drawString(40, y, "Fírinne Dhigiteach - Image Analysis Report")
+    y -= 24
+
+    pdf.setFont("Helvetica", 10)
+    y = _draw_wrapped_text(pdf, f"Filename: {_safe_text(record.filename)}", 40, y, width - 80)
+    y = _draw_wrapped_text(pdf, f"Created: {_safe_text(record.created_at)}", 40, y, width - 80)
+    y = _draw_wrapped_text(pdf, f"Classification: {_safe_text(record.classification)}", 40, y, width - 80)
+    y = _draw_wrapped_text(
+        pdf,
+        f"Forensic score: {_safe_text(round(record.forensic_score or 0.0, 4))}",
+        40,
+        y,
+        width - 80,
+    )
+
+    findings = []
+    if isinstance(record.metadata_anomalies, dict):
+        findings = record.metadata_anomalies.get("findings") or []
+    if findings:
+        y -= 6
+        pdf.setFont("Helvetica-Bold", 11)
+        pdf.drawString(40, y, "Metadata Findings (sample):")
+        y -= 14
+        pdf.setFont("Helvetica", 10)
+        for item in findings[:8]:
+            y = _draw_wrapped_text(pdf, f"- {_safe_text(item)}", 50, y, width - 100)
+            if y < 120:
+                pdf.showPage()
+                y = height - 40
+                pdf.setFont("Helvetica", 10)
+
+    y -= 6
+    pdf.setFont("Helvetica-Bold", 11)
+    pdf.drawString(40, y, "Key Artifacts")
+    y -= 14
+
+    pdf.setFont("Helvetica", 10)
+    y = _try_add_image(pdf, record.thumbnail_path, 40, y, 160, 120)
+    y = _try_add_image(pdf, record.gradcam_heatmap, 220, height - 200, 160, 120)
+    y = _try_add_image(pdf, record.ela_heatmap, 400, height - 200, 160, 120)
+
+    noise_heatmap = None
+    if isinstance(record.noise_residual, dict):
+        noise_heatmap = record.noise_residual.get("noise_heatmap_path")
+    y = _try_add_image(pdf, noise_heatmap, 40, y, 160, 120)
+
+    pdf.showPage()
+    pdf.save()
+    buffer.seek(0)
+    return buffer.read()
+
+
+def _build_video_report_pdf(record: VideoAnalysisRecord) -> bytes:
+    buffer = io.BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=A4)
+    width, height = A4
+    y = height - 40
+
+    pdf.setFont("Helvetica-Bold", 16)
+    pdf.drawString(40, y, "Fírinne Dhigiteach - Video Analysis Report")
+    y -= 24
+
+    pdf.setFont("Helvetica", 10)
+    y = _draw_wrapped_text(pdf, f"Filename: {_safe_text(record.filename)}", 40, y, width - 80)
+    y = _draw_wrapped_text(pdf, f"Created: {_safe_text(record.created_at)}", 40, y, width - 80)
+    y = _draw_wrapped_text(pdf, f"Classification: {_safe_text(record.classification)}", 40, y, width - 80)
+    y = _draw_wrapped_text(
+        pdf,
+        f"Forensic score: {_safe_text(round(record.forensic_score or 0.0, 4))}",
+        40,
+        y,
+        width - 80,
+    )
+    y = _draw_wrapped_text(pdf, f"Frame count: {_safe_text(record.frame_count)}", 40, y, width - 80)
+
+    pdf.setFont("Helvetica-Bold", 11)
+    pdf.drawString(40, y - 6, "Sample Frames")
+    y -= 20
+
+    frames = []
+    if isinstance(record.frames_json, list):
+        frames = record.frames_json[:4]
+
+    x = 40
+    for frame in frames:
+        path_value = None
+        if isinstance(frame, dict):
+            path_value = frame.get("saved_path")
+        y = _try_add_image(pdf, path_value, x, y, 120, 90)
+        x += 140
+        if x > width - 140:
+            x = 40
+            y -= 20
+
+    pdf.showPage()
+    pdf.save()
+    buffer.seek(0)
+    return buffer.read()
+
+
 # ---------------------------
 # Basic Routes
 # ---------------------------
@@ -449,6 +803,12 @@ def root():
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.on_event("startup")
+async def start_retention_task():
+    if RETENTION_DAYS > 0:
+        asyncio.create_task(_retention_loop())
 
 
 # ---------------------------
@@ -580,6 +940,7 @@ async def analyse_image(
     # Return API response
     # -----------------------
     return {
+        "id": record.id,
         "detector": "CNNDetection + GradCAM + Forensic Fusion + C2PA",
         "input_file": original_name,
         "saved_path": str(filepath),
@@ -704,6 +1065,47 @@ async def analyse_video(
         "video_metadata": record.video_metadata,
         "created_at": record.created_at,
     }
+
+
+@app.post("/analysis/video/async")
+async def analyse_video_async(file: UploadFile = File(...)):
+    if not (file.content_type or "").startswith("video/"):
+        raise HTTPException(400, "Please upload a video file.")
+
+    original_name = Path(file.filename or "").name
+    if not original_name:
+        raise HTTPException(400, "Missing filename.")
+
+    ext = Path(original_name).suffix.lower()
+    saved_path = save_uploaded_file(file, max_bytes=_max_bytes_for_ext(ext))
+
+    duration_seconds = get_video_duration_seconds(saved_path)
+    if duration_seconds <= 0:
+        saved_path.unlink(missing_ok=True)
+        raise HTTPException(400, "Video appears to be invalid or unreadable.")
+    if duration_seconds > 180:
+        saved_path.unlink(missing_ok=True)
+        raise HTTPException(400, "Video exceeds 3 minute length limit.")
+
+    job_id = uuid.uuid4().hex
+    await _set_job(
+        job_id,
+        status="queued",
+        created_at=datetime.utcnow().isoformat(),
+        filename=original_name,
+    )
+    asyncio.create_task(_run_video_job(job_id, saved_path, original_name))
+
+    return {"job_id": job_id, "status": "queued"}
+
+
+@app.get("/jobs/{job_id}")
+async def get_job(job_id: str):
+    async with _jobs_lock:
+        job = _jobs.get(job_id)
+    if not job:
+        raise HTTPException(404, "Job not found")
+    return job
 
 
 # ---------------------------
@@ -850,6 +1252,36 @@ def get_video_analysis(record_id: int, db: Session = Depends(get_db)):
     }
 
 
+@app.get("/analysis/{record_id}/report.pdf")
+def get_image_report(record_id: int, db: Session = Depends(get_db)):
+    record = db.query(AnalysisRecord).filter(AnalysisRecord.id == record_id).first()
+    if not record:
+        raise HTTPException(404, "Record not found")
+    pdf_bytes = _build_image_report_pdf(record)
+    filename = f"analysis_{record_id}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
+
+
+@app.get("/analysis/video/{record_id}/report.pdf")
+def get_video_report(record_id: int, db: Session = Depends(get_db)):
+    record = (
+        db.query(VideoAnalysisRecord).filter(VideoAnalysisRecord.id == record_id).first()
+    )
+    if not record:
+        raise HTTPException(404, "Record not found")
+    pdf_bytes = _build_video_report_pdf(record)
+    filename = f"video_analysis_{record_id}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
+
+
 @app.delete("/analysis/{record_id}")
 def delete_analysis(
     record_id: int,
@@ -864,30 +1296,7 @@ def delete_analysis(
     if not record:
         raise HTTPException(404, "Record not found")
 
-    paths: set[Path] = set()
-    for value in (
-        record.saved_path,
-        record.thumbnail_path,
-        record.gradcam_heatmap,
-        record.ela_heatmap,
-        record.forensic_score_json,
-        record.ml_prediction,
-        record.metadata_anomalies,
-        record.metadata_json,
-        record.file_integrity,
-        record.ai_watermark,
-        record.exif_forensics,
-        record.c2pa,
-        record.jpeg_qtables,
-        record.noise_residual,
-        record.ela_analysis,
-    ):
-        _collect_storage_paths(value, paths)
-
-    _cleanup_storage_paths(paths)
-
-    db.delete(record)
-    db.commit()
+    _delete_analysis_record(record, db)
 
     return {"status": "deleted", "id": record_id}
 
@@ -908,19 +1317,7 @@ def delete_video_analysis(
     if not record:
         raise HTTPException(404, "Record not found")
 
-    paths: set[Path] = set()
-    for value in (
-        record.saved_path,
-        record.thumbnail_path,
-        record.frames_json,
-        record.video_metadata,
-    ):
-        _collect_storage_paths(value, paths)
-
-    _cleanup_storage_paths(paths)
-
-    db.delete(record)
-    db.commit()
+    _delete_video_record(record, db)
 
     return {"status": "deleted", "id": record_id}
 
