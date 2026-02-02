@@ -9,10 +9,30 @@ interface Props {
   result: AnalysisResult;
 }
 
+const STD_LUMA = [
+  [16, 11, 10, 16, 24, 40, 51, 61],
+  [12, 12, 14, 19, 26, 58, 60, 55],
+  [14, 13, 16, 24, 40, 57, 69, 56],
+  [14, 17, 22, 29, 51, 87, 80, 62],
+  [18, 22, 37, 56, 68, 109, 103, 77],
+  [24, 35, 55, 64, 81, 104, 113, 92],
+  [49, 64, 78, 87, 103, 121, 120, 101],
+  [72, 92, 95, 98, 112, 100, 103, 99],
+];
+
 export const AnalysisDashboard: React.FC<Props> = ({ result }) => {
   const [activeTab, setActiveTab] = useState<"metadata" | "c2pa" | "jpeg">(
     "metadata"
   );
+
+  const qtables = result.jpeg_qtables?.qtables;
+  const firstTable = qtables ? (Object.values(qtables)[0] as number[] | undefined) : undefined;
+  const tableGrid: number[][] | null =
+    firstTable && firstTable.length >= 64
+      ? Array.from({ length: 8 }, (_, r) =>
+          firstTable.slice(r * 8, r * 8 + 8)
+        )
+      : null;
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -180,9 +200,85 @@ export const AnalysisDashboard: React.FC<Props> = ({ result }) => {
                 )}
 
                 {activeTab === "jpeg" && (
-                  <pre className="text-xs text-emerald-300 font-mono whitespace-pre-wrap">
-                    {JSON.stringify(result.jpeg_qtables, null, 2)}
-                  </pre>
+                  <div className="space-y-4">
+                    <div className="flex flex-wrap gap-2">
+                      {typeof result.jpeg_qtables?.quality_estimate === "number" && (
+                        <span className="px-2 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
+                          Quality ≈ {result.jpeg_qtables.quality_estimate}
+                        </span>
+                      )}
+                      {typeof result.jpeg_qtables?.inconsistency_score === "number" && (
+                        <span
+                          className="px-2 py-1 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-300 border border-amber-500/20"
+                          title="High inconsistency often suggests recompression or edits."
+                        >
+                          Double Compression:{" "}
+                          {(result.jpeg_qtables.inconsistency_score * 100).toFixed(1)}%
+                        </span>
+                      )}
+                    </div>
+
+                    {tableGrid ? (
+                      <div className="grid grid-cols-1 lg:grid-cols-[1fr_220px] gap-4">
+                        <div className="rounded-lg border border-slate-700 bg-slate-900 p-3">
+                          <div className="text-xs text-slate-400 mb-2">
+                            Quantization Table (8×8)
+                          </div>
+                          <div className="grid grid-cols-8 gap-1">
+                            {tableGrid.flatMap((row, rIdx) =>
+                              row.map((value, cIdx) => {
+                                const diff =
+                                  Math.abs(value - STD_LUMA[rIdx][cIdx]) / 255;
+                                const intensity = Math.min(1, diff * 2.5);
+                                const bg = `rgba(239, 68, 68, ${0.12 + intensity * 0.45})`;
+                                return (
+                                  <div
+                                    key={`${rIdx}-${cIdx}`}
+                                    className="text-[10px] text-slate-100 rounded flex items-center justify-center h-7"
+                                    style={{ backgroundColor: bg }}
+                                    title={`Value ${value} (diff ${Math.round(diff * 255)})`}
+                                  >
+                                    {value}
+                                  </div>
+                                );
+                              })
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="rounded-lg border border-slate-700 bg-slate-900 p-3">
+                          <div className="text-xs text-slate-400 mb-2">
+                            JPEG Quality Heatmap
+                          </div>
+                          {result.jpeg_qtables?.double_compression?.jpeg_quality_heatmap_path ? (
+                            <img
+                              src={fixPath(
+                                result.jpeg_qtables.double_compression
+                                  .jpeg_quality_heatmap_path
+                              )}
+                              alt="JPEG quality heatmap"
+                              className="w-full rounded border border-slate-700"
+                            />
+                          ) : (
+                            <div className="text-xs text-slate-500">
+                              Not available for this file.
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-sm text-slate-500">
+                        No JPEG tables found for this file.
+                      </div>
+                    )}
+
+                    <details className="text-xs text-slate-400">
+                      <summary className="cursor-pointer">Raw JPEG data</summary>
+                      <pre className="mt-2 text-emerald-300 font-mono whitespace-pre-wrap">
+                        {JSON.stringify(result.jpeg_qtables, null, 2)}
+                      </pre>
+                    </details>
+                  </div>
                 )}
               </div>
             </div>
