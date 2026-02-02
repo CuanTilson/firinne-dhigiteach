@@ -1,7 +1,7 @@
 ﻿import React from "react";
 import type { AnalysisRecordSummary } from "../types";
 import { Badge } from "./ui/Badge";
-import { Eye, Trash2, Calendar, Film } from "lucide-react";
+import { Eye, Trash2, Calendar, Film, FileDown } from "lucide-react";
 import { API_BASE_URL } from "../constants";
 import { Link } from "react-router-dom";
 
@@ -52,6 +52,10 @@ export const HistoryTable: React.FC<Props> = ({
               record.media_type === "video"
                 ? `/videos/${record.id}`
                 : `/records/${record.id}`;
+            const reportPath =
+              record.media_type === "video"
+                ? `${API_BASE_URL}/analysis/video/${record.id}/report.pdf`
+                : `${API_BASE_URL}/analysis/${record.id}/report.pdf`;
             return (
               <tr
                 key={record.id}
@@ -92,6 +96,13 @@ export const HistoryTable: React.FC<Props> = ({
               </td>
               <td className="px-6 py-3 text-right">
                 <div className="flex items-center justify-end gap-2">
+                  <a
+                    href={reportPath}
+                    className="p-2 text-slate-300 hover:bg-slate-700/50 rounded-full transition-colors"
+                    title="Download Report"
+                  >
+                    <FileDown size={18} />
+                  </a>
                   <Link
                     to={detailPath}
                     className="p-2 text-cyan-400 hover:bg-cyan-900/30 rounded-full transition-colors"
