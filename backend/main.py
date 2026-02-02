@@ -12,8 +12,8 @@ from starlette.staticfiles import StaticFiles
 from PIL import Image, ImageOps
 
 from sqlalchemy.orm import Session
+from sqlalchemy import select, literal, union_all, func
 from pathlib import Path
-import shutil
 import uuid
 import os
 from datetime import datetime
@@ -34,7 +34,11 @@ from backend.database.schemas import (
 )
 
 # Upload handling
-from backend.analysis.upload import save_uploaded_file, UPLOAD_DIR
+from backend.analysis.upload import (
+    save_uploaded_file,
+    IMAGE_EXTENSIONS,
+    VIDEO_EXTENSIONS,
+)
 
 # Metadata + forensic tools
 from backend.analysis.metadata import (
@@ -65,61 +69,82 @@ from backend.explainability.gradcam import GradCAM
 
 # ---------------------------
 # Setup
+BACKEND_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = BACKEND_DIR.parent
+STORAGE_DIR = BACKEND_DIR / "storage"
+
 # Load environment variables from backend/.env (if present)
-load_dotenv(dotenv_path=Path(__file__).resolve().parent / ".env")
+load_dotenv(dotenv_path=BACKEND_DIR / ".env")
 # ---------------------------
 
-WEIGHTS = Path("vendor/CNNDetection/weights/blur_jpg_prob0.5.pth")
-Path("backend/storage/ela").mkdir(parents=True, exist_ok=True)
-Path("backend/storage/heatmaps").mkdir(parents=True, exist_ok=True)
-THUMB_DIR = Path("backend/storage/thumbnails")
+WEIGHTS = PROJECT_ROOT / "vendor" / "CNNDetection" / "weights" / "blur_jpg_prob0.5.pth"
+ELA_DIR = STORAGE_DIR / "ela"
+HEATMAPS_DIR = STORAGE_DIR / "heatmaps"
+THUMB_DIR = STORAGE_DIR / "thumbnails"
+VIDEO_FRAMES_DIR = STORAGE_DIR / "video_frames"
+NOISE_DIR = STORAGE_DIR / "noise"
+JPEG_QUALITY_DIR = STORAGE_DIR / "jpeg_quality"
+
+ELA_DIR.mkdir(parents=True, exist_ok=True)
+HEATMAPS_DIR.mkdir(parents=True, exist_ok=True)
 THUMB_DIR.mkdir(parents=True, exist_ok=True)
-VIDEO_FRAMES_DIR = Path("backend/storage/video_frames")
 VIDEO_FRAMES_DIR.mkdir(parents=True, exist_ok=True)
-NOISE_DIR = Path("backend/storage/noise")
 NOISE_DIR.mkdir(parents=True, exist_ok=True)
-JPEG_QUALITY_DIR = Path("backend/storage/jpeg_quality")
 JPEG_QUALITY_DIR.mkdir(parents=True, exist_ok=True)
 
-ADMIN_KEY = os.getenv("FD_ADMIN_KEY", "secret-admin-key")
+ADMIN_KEY = os.getenv("FD_ADMIN_KEY")
+ALLOW_INSECURE_ADMIN_KEY = os.getenv("FD_ALLOW_INSECURE_ADMIN_KEY") == "1"
+if not ADMIN_KEY:
+    if ALLOW_INSECURE_ADMIN_KEY:
+        ADMIN_KEY = "secret-admin-key"
+        print(
+            "WARNING: FD_ADMIN_KEY is not set. Using insecure default "
+            "because FD_ALLOW_INSECURE_ADMIN_KEY=1."
+        )
+    else:
+        raise RuntimeError("FD_ADMIN_KEY must be set to enable admin actions.")
+
 ALLOWED_ORIGINS = os.getenv("FD_CORS_ORIGINS", "*")
 ALLOWED_ORIGINS_LIST = ["*"] if ALLOWED_ORIGINS == "*" else [
     origin.strip() for origin in ALLOWED_ORIGINS.split(",") if origin.strip()
 ]
 
+MAX_IMAGE_MB = float(os.getenv("FD_MAX_IMAGE_MB", "20"))
+MAX_VIDEO_MB = float(os.getenv("FD_MAX_VIDEO_MB", "200"))
+MAX_UPLOAD_MB = float(os.getenv("FD_MAX_UPLOAD_MB", "200"))
 app = FastAPI(title="Fírinne Dhigiteach API")
 
 # CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS_LIST,
-    allow_credentials=True,
+    allow_credentials=ALLOWED_ORIGINS != "*",
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # Static folders
 app.mount(
-    "/uploaded", StaticFiles(directory="backend/storage/uploaded"), name="uploaded"
+    "/uploaded", StaticFiles(directory=STORAGE_DIR / "uploaded"), name="uploaded"
 )
-app.mount("/ela", StaticFiles(directory="backend/storage/ela"), name="ela")
+app.mount("/ela", StaticFiles(directory=ELA_DIR), name="ela")
 app.mount(
-    "/heatmaps", StaticFiles(directory="backend/storage/heatmaps"), name="heatmaps"
+    "/heatmaps", StaticFiles(directory=HEATMAPS_DIR), name="heatmaps"
 )
 app.mount(
     "/thumbnails",
-    StaticFiles(directory="backend/storage/thumbnails"),
+    StaticFiles(directory=THUMB_DIR),
     name="thumbnails",
 )
 app.mount(
     "/video_frames",
-    StaticFiles(directory="backend/storage/video_frames"),
+    StaticFiles(directory=VIDEO_FRAMES_DIR),
     name="video_frames",
 )
-app.mount("/noise", StaticFiles(directory="backend/storage/noise"), name="noise")
+app.mount("/noise", StaticFiles(directory=NOISE_DIR), name="noise")
 app.mount(
     "/jpeg_quality",
-    StaticFiles(directory="backend/storage/jpeg_quality"),
+    StaticFiles(directory=JPEG_QUALITY_DIR),
     name="jpeg_quality",
 )
 
@@ -146,6 +171,95 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def _mb_to_bytes(value: float) -> int:
+    return int(value * 1024 * 1024)
+
+
+def _max_bytes_for_ext(ext: str) -> int:
+    ext = ext.lower()
+    if ext in IMAGE_EXTENSIONS:
+        return _mb_to_bytes(MAX_IMAGE_MB)
+    if ext in VIDEO_EXTENSIONS:
+        return _mb_to_bytes(MAX_VIDEO_MB)
+    return _mb_to_bytes(MAX_UPLOAD_MB)
+
+
+def _ensure_image_valid(path: Path) -> None:
+    try:
+        with Image.open(path) as img:
+            img.verify()
+    except Exception as exc:
+        path.unlink(missing_ok=True)
+        raise HTTPException(400, "Invalid or corrupted image file.") from exc
+
+
+def _coerce_storage_path(value: str) -> Path | None:
+    try:
+        raw_path = Path(value)
+    except (TypeError, ValueError):
+        return None
+
+    if raw_path.is_absolute():
+        try:
+            raw_path.relative_to(STORAGE_DIR)
+            return raw_path
+        except ValueError:
+            return None
+
+    clean = value.replace("\\", "/")
+    marker = "backend/storage/"
+    if marker in clean:
+        rel = clean.split(marker, 1)[1]
+        return STORAGE_DIR / rel
+
+    for prefix in (
+        "uploaded/",
+        "ela/",
+        "heatmaps/",
+        "thumbnails/",
+        "video_frames/",
+        "noise/",
+        "jpeg_quality/",
+    ):
+        if clean.startswith(prefix):
+            return STORAGE_DIR / clean
+
+    return None
+
+
+def _collect_storage_paths(value, paths: set[Path]) -> None:
+    if value is None:
+        return
+    if isinstance(value, str):
+        path = _coerce_storage_path(value)
+        if path:
+            paths.add(path)
+        return
+    if isinstance(value, dict):
+        for item in value.values():
+            _collect_storage_paths(item, paths)
+        return
+    if isinstance(value, (list, tuple, set)):
+        for item in value:
+            _collect_storage_paths(item, paths)
+
+
+def _cleanup_storage_paths(paths: set[Path]) -> None:
+    frame_dirs: set[Path] = set()
+    for path in paths:
+        if path.is_file():
+            if VIDEO_FRAMES_DIR in path.parents:
+                frame_dirs.add(path.parent)
+            path.unlink(missing_ok=True)
+
+    for folder in frame_dirs:
+        try:
+            if folder.exists() and not any(folder.iterdir()):
+                folder.rmdir()
+        except OSError:
+            pass
 
 
 def run_full_analysis(filepath: Path) -> dict:
@@ -183,7 +297,7 @@ def run_full_analysis(filepath: Path) -> dict:
         or "photo assist" in c2pa_info.get("software_agents", [])
     )
 
-    ela_path = Path("backend/storage/ela") / f"{uuid.uuid4().hex}_ela.png"
+    ela_path = ELA_DIR / f"{uuid.uuid4().hex}_ela.png"
     ela_info = perform_ela(filepath, quality=90, scale_factor=20, save_path=ela_path)
     jpeg_quality_path = JPEG_QUALITY_DIR / f"{uuid.uuid4().hex}_jpegq.png"
     jpeg_quality_local = jpeg_double_compression_heatmap(
@@ -227,7 +341,7 @@ def run_full_analysis(filepath: Path) -> dict:
         sd_watermark_score,
     )
 
-    heatmap_path = Path("backend/storage/heatmaps") / f"{uuid.uuid4().hex}_gradcam.png"
+    heatmap_path = HEATMAPS_DIR / f"{uuid.uuid4().hex}_gradcam.png"
     cam = GradCAM(cnndetector.get_model(), cnndetector.get_target_layer())
     cam.generate(ml["tensor"], filepath, heatmap_path)
 
@@ -344,8 +458,11 @@ def health():
 
 @app.post("/media/upload")
 async def upload_media(file: UploadFile = File(...)):
-    saved_path = save_uploaded_file(file)
     original_name = Path(file.filename or "").name
+    if not original_name:
+        raise HTTPException(400, "Missing filename.")
+    ext = Path(original_name).suffix.lower()
+    saved_path = save_uploaded_file(file, max_bytes=_max_bytes_for_ext(ext))
     return {
         "status": "success",
         "filename": original_name,
@@ -355,14 +472,15 @@ async def upload_media(file: UploadFile = File(...)):
 
 @app.post("/media/metadata")
 async def analyse_media(file: UploadFile = File(...)):
-    saved_path = save_uploaded_file(file)
     original_name = Path(file.filename or "").name
     if not original_name:
         raise HTTPException(400, "Missing filename.")
 
     ext = Path(original_name).suffix.lower()
+    saved_path = save_uploaded_file(file, max_bytes=_max_bytes_for_ext(ext))
 
     if ext in {".jpg", ".jpeg", ".png"}:
+        _ensure_image_valid(saved_path)
         metadata = extract_image_metadata(saved_path)
     else:
         metadata = extract_video_metadata(saved_path)
@@ -394,11 +512,9 @@ async def analyse_image(
     if not original_name:
         raise HTTPException(400, "Missing filename.")
 
-    suffix = Path(original_name).suffix or ".png"
-    filepath = UPLOAD_DIR / f"{uuid.uuid4().hex}{suffix}"
-
-    with filepath.open("wb") as f:
-        shutil.copyfileobj(file.file, f)
+    ext = Path(original_name).suffix.lower()
+    filepath = save_uploaded_file(file, max_bytes=_max_bytes_for_ext(ext))
+    _ensure_image_valid(filepath)
 
     # Generate 128x128 thumbnail
     thumb_path = THUMB_DIR / f"{uuid.uuid4().hex}_thumb.jpg"
@@ -541,13 +657,15 @@ async def analyse_video(
     if not original_name:
         raise HTTPException(400, "Missing filename.")
 
-    saved_path = save_uploaded_file(file)
-    file_size = saved_path.stat().st_size
-    if file_size > 200 * 1024 * 1024:
-        raise HTTPException(400, "Video exceeds 200MB size limit.")
+    ext = Path(original_name).suffix.lower()
+    saved_path = save_uploaded_file(file, max_bytes=_max_bytes_for_ext(ext))
 
     duration_seconds = get_video_duration_seconds(saved_path)
+    if duration_seconds <= 0:
+        saved_path.unlink(missing_ok=True)
+        raise HTTPException(400, "Video appears to be invalid or unreadable.")
     if duration_seconds > 180:
+        saved_path.unlink(missing_ok=True)
         raise HTTPException(400, "Video exceeds 3 minute length limit.")
     video_metadata = extract_video_metadata(saved_path)
 
@@ -611,59 +729,61 @@ def list_analysis(
                 400, f"Invalid {field} date. Use ISO 8601 format."
             ) from exc
 
-    def apply_filters(query, model):
+    def build_filters(model):
+        filters = []
         if classification:
-            query = query.filter(model.classification == classification)
-
+            filters.append(model.classification == classification)
         if filename:
-            query = query.filter(model.filename.ilike(f"%{filename}%"))
-
+            filters.append(model.filename.ilike(f"%{filename}%"))
         if date_from:
-            query = query.filter(
-                model.created_at >= parse_iso_date(date_from, "date_from")
-            )
-
+            filters.append(model.created_at >= parse_iso_date(date_from, "date_from"))
         if date_to:
-            query = query.filter(
-                model.created_at <= parse_iso_date(date_to, "date_to")
-            )
+            filters.append(model.created_at <= parse_iso_date(date_to, "date_to"))
+        return filters
 
-        return query
+    image_select = select(
+        AnalysisRecord.id.label("id"),
+        AnalysisRecord.filename.label("filename"),
+        AnalysisRecord.forensic_score.label("forensic_score"),
+        AnalysisRecord.classification.label("classification"),
+        AnalysisRecord.created_at.label("created_at"),
+        AnalysisRecord.thumbnail_path.label("thumbnail_path"),
+        literal("image").label("media_type"),
+    ).where(*build_filters(AnalysisRecord))
 
-    image_records = apply_filters(db.query(AnalysisRecord), AnalysisRecord).all()
-    video_records = apply_filters(
-        db.query(VideoAnalysisRecord), VideoAnalysisRecord
+    video_select = select(
+        VideoAnalysisRecord.id.label("id"),
+        VideoAnalysisRecord.filename.label("filename"),
+        VideoAnalysisRecord.forensic_score.label("forensic_score"),
+        VideoAnalysisRecord.classification.label("classification"),
+        VideoAnalysisRecord.created_at.label("created_at"),
+        VideoAnalysisRecord.thumbnail_path.label("thumbnail_path"),
+        literal("video").label("media_type"),
+    ).where(*build_filters(VideoAnalysisRecord))
+
+    combined_query = union_all(image_select, video_select).subquery()
+
+    total = db.execute(select(func.count()).select_from(combined_query)).scalar_one()
+    offset = (page - 1) * limit
+    rows = db.execute(
+        select(combined_query)
+        .order_by(combined_query.c.created_at.desc())
+        .offset(offset)
+        .limit(limit)
     ).all()
 
-    combined = [
+    paged = [
         {
-            "id": r.id,
-            "filename": r.filename,
-            "forensic_score": r.forensic_score,
-            "classification": r.classification,
-            "created_at": r.created_at,
-            "thumbnail_url": f"/thumbnails/{Path(r.thumbnail_path).name}",
-            "media_type": "image",
+            "id": row._mapping["id"],
+            "filename": row._mapping["filename"],
+            "forensic_score": row._mapping["forensic_score"],
+            "classification": row._mapping["classification"],
+            "created_at": row._mapping["created_at"],
+            "thumbnail_url": f"/thumbnails/{Path(row._mapping['thumbnail_path']).name}",
+            "media_type": row._mapping["media_type"],
         }
-        for r in image_records
-    ] + [
-        {
-            "id": r.id,
-            "filename": r.filename,
-            "forensic_score": r.forensic_score,
-            "classification": r.classification,
-            "created_at": r.created_at,
-            "thumbnail_url": f"/thumbnails/{Path(r.thumbnail_path).name}",
-            "media_type": "video",
-        }
-        for r in video_records
+        for row in rows
     ]
-
-    combined.sort(key=lambda item: item["created_at"], reverse=True)
-
-    total = len(combined)
-    offset = (page - 1) * limit
-    paged = combined[offset : offset + limit]
 
     return {
         "data": paged,
@@ -744,6 +864,28 @@ def delete_analysis(
     if not record:
         raise HTTPException(404, "Record not found")
 
+    paths: set[Path] = set()
+    for value in (
+        record.saved_path,
+        record.thumbnail_path,
+        record.gradcam_heatmap,
+        record.ela_heatmap,
+        record.forensic_score_json,
+        record.ml_prediction,
+        record.metadata_anomalies,
+        record.metadata_json,
+        record.file_integrity,
+        record.ai_watermark,
+        record.exif_forensics,
+        record.c2pa,
+        record.jpeg_qtables,
+        record.noise_residual,
+        record.ela_analysis,
+    ):
+        _collect_storage_paths(value, paths)
+
+    _cleanup_storage_paths(paths)
+
     db.delete(record)
     db.commit()
 
@@ -765,6 +907,17 @@ def delete_video_analysis(
 
     if not record:
         raise HTTPException(404, "Record not found")
+
+    paths: set[Path] = set()
+    for value in (
+        record.saved_path,
+        record.thumbnail_path,
+        record.frames_json,
+        record.video_metadata,
+    ):
+        _collect_storage_paths(value, paths)
+
+    _cleanup_storage_paths(paths)
 
     db.delete(record)
     db.commit()
