@@ -1,4 +1,4 @@
-import { API_ENDPOINTS, API_BASE_URL, DEFAULT_ADMIN_KEY } from "../constants";
+import { API_ENDPOINTS, API_BASE_URL, DEFAULT_ADMIN_KEY, API_KEY } from "../constants";
 import type {
   AnalysisRecordSummary,
   AnalysisResult,
@@ -6,6 +6,7 @@ import type {
   PaginatedResponse,
   RecordFilters,
   VideoAnalysisDetail,
+  VideoJobStatus,
 } from "../types";
 
 /**
@@ -14,11 +15,14 @@ import type {
 export const detectImage = async (file: File): Promise<AnalysisResult> => {
   const formData = new FormData();
   formData.append('file', file);
+  const headers: Record<string, string> = {};
+  if (API_KEY) headers["x-api-key"] = API_KEY;
 
   try {
     const response = await fetch(API_ENDPOINTS.DETECT, {
       method: 'POST',
       body: formData,
+      headers,
     });
 
     if (!response.ok) {
@@ -38,11 +42,14 @@ export const detectImage = async (file: File): Promise<AnalysisResult> => {
 export const detectVideo = async (file: File): Promise<VideoAnalysisDetail> => {
   const formData = new FormData();
   formData.append("file", file);
+  const headers: Record<string, string> = {};
+  if (API_KEY) headers["x-api-key"] = API_KEY;
 
   try {
     const response = await fetch(API_ENDPOINTS.DETECT_VIDEO, {
       method: "POST",
       body: formData,
+      headers,
     });
 
     if (!response.ok) {
@@ -52,6 +59,51 @@ export const detectVideo = async (file: File): Promise<VideoAnalysisDetail> => {
     return await response.json();
   } catch (error) {
     console.error("Video Detect API Error:", error);
+    throw error;
+  }
+};
+
+/**
+ * Uploads a video for async forensic analysis
+ */
+export const detectVideoAsync = async (
+  file: File
+): Promise<{ job_id: string; status: string }> => {
+  const formData = new FormData();
+  formData.append("file", file);
+  const headers: Record<string, string> = {};
+  if (API_KEY) headers["x-api-key"] = API_KEY;
+
+  try {
+    const response = await fetch(API_ENDPOINTS.DETECT_VIDEO_ASYNC, {
+      method: "POST",
+      body: formData,
+      headers,
+    });
+
+    if (!response.ok) {
+      throw new Error(`Video analysis failed: ${response.statusText}`);
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error("Video Detect Async API Error:", error);
+    throw error;
+  }
+};
+
+/**
+ * Fetches a video job status
+ */
+export const getVideoJob = async (jobId: string): Promise<VideoJobStatus> => {
+  const headers: Record<string, string> = {};
+  if (API_KEY) headers["x-api-key"] = API_KEY;
+  try {
+    const response = await fetch(`${API_ENDPOINTS.JOBS}/${jobId}`, { headers });
+    if (!response.ok) throw new Error("Failed to fetch job status");
+    return await response.json();
+  } catch (error) {
+    console.error("Get Job Error:", error);
     throw error;
   }
 };
@@ -72,9 +124,13 @@ export const getRecords = async (
   if (filters.classification) params.append('classification', filters.classification);
   if (filters.date_from) params.append('date_from', filters.date_from);
   if (filters.date_to) params.append('date_to', filters.date_to);
+  const headers: Record<string, string> = {};
+  if (API_KEY) headers["x-api-key"] = API_KEY;
 
   try {
-    const response = await fetch(`${API_ENDPOINTS.RECORDS}?${params.toString()}`);
+    const response = await fetch(`${API_ENDPOINTS.RECORDS}?${params.toString()}`, {
+      headers,
+    });
     if (!response.ok) throw new Error("Failed to fetch records");
     return await response.json();
   } catch (error) {
@@ -88,7 +144,9 @@ export const getRecords = async (
  */
 export const getRecordById = async (id: number): Promise<AnalysisResult> => {
   try {
-    const response = await fetch(`${API_ENDPOINTS.RECORDS}/${id}`);
+    const headers: Record<string, string> = {};
+    if (API_KEY) headers["x-api-key"] = API_KEY;
+    const response = await fetch(`${API_ENDPOINTS.RECORDS}/${id}`, { headers });
     if (!response.ok) throw new Error("Failed to fetch record details");
     return await response.json();
   } catch (error) {
@@ -102,7 +160,9 @@ export const getRecordById = async (id: number): Promise<AnalysisResult> => {
  */
 export const getVideoById = async (id: number): Promise<VideoAnalysisDetail> => {
   try {
-    const response = await fetch(`${API_ENDPOINTS.VIDEO_RECORDS}/${id}`);
+    const headers: Record<string, string> = {};
+    if (API_KEY) headers["x-api-key"] = API_KEY;
+    const response = await fetch(`${API_ENDPOINTS.VIDEO_RECORDS}/${id}`, { headers });
     if (!response.ok) throw new Error("Failed to fetch video details");
     return await response.json();
   } catch (error) {
@@ -123,9 +183,12 @@ export const deleteRecord = async (
   try {
     const endpoint =
       mediaType === "video" ? API_ENDPOINTS.VIDEO_RECORDS : API_ENDPOINTS.RECORDS;
+    const headers: Record<string, string> = {};
+    if (resolvedKey) headers["admin-key"] = resolvedKey;
+    if (API_KEY) headers["x-api-key"] = API_KEY;
     const response = await fetch(`${endpoint}/${id}`, {
       method: 'DELETE',
-      headers: resolvedKey ? { 'admin-key': resolvedKey } : undefined,
+      headers,
     });
     if (!response.ok) throw new Error("Failed to delete record");
   } catch (error) {
@@ -140,7 +203,9 @@ export const deleteRecord = async (
  */
 export const checkBackend = async (): Promise<boolean> => {
   try {
-    const res = await fetch(`${API_BASE_URL}/health`);
+    const headers: Record<string, string> = {};
+    if (API_KEY) headers["x-api-key"] = API_KEY;
+    const res = await fetch(`${API_BASE_URL}/health`, { headers });
     return res.ok;
   } catch {
     return false;
