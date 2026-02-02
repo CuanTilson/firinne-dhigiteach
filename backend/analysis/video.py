@@ -132,7 +132,12 @@ def sample_video_frames(
             continue
 
         frame_path = output_dir / f"frame_{idx:06d}.jpg"
-        cv2.imwrite(str(frame_path), frame)
+        try:
+            from PIL import Image
+            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            Image.fromarray(rgb).save(frame_path)
+        except Exception:
+            cv2.imwrite(str(frame_path), frame)
         timestamp = float(idx / fps) if fps else 0.0
         frames.append(
             {
