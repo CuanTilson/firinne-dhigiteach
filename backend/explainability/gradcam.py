@@ -75,9 +75,9 @@ class GradCAM:
         heatmap = np.maximum(heatmap, 0)
         heatmap = heatmap / (np.max(heatmap) + 1e-8)
 
-        # ——— 4. Load original image ———
-        orig = cv2.imread(str(original_image_path))
-        orig = cv2.cvtColor(orig, cv2.COLOR_BGR2RGB)
+        # ——— 4. Load original image (robust to non-ASCII paths) ———
+        with Image.open(original_image_path) as img:
+            orig = np.array(img.convert("RGB"))
 
         # ——— 5. Upscale heatmap back to *original* dimensions ———
         heatmap = cv2.resize(heatmap, (orig.shape[1], orig.shape[0]))
@@ -89,9 +89,9 @@ class GradCAM:
         # ——— 6. Overlay ———
         super_img = cv2.addWeighted(orig, 0.6, heatmap, 0.4, 0)
 
-        # ——— 7. Save ———
+        # ——— 7. Save (Unicode-safe) ———
         save_path.parent.mkdir(parents=True, exist_ok=True)
-        cv2.imwrite(str(save_path), cv2.cvtColor(super_img, cv2.COLOR_RGB2BGR))
+        Image.fromarray(super_img).save(save_path)
 
         # ——— 8. Free CUDA memory ———
         torch.cuda.empty_cache()
