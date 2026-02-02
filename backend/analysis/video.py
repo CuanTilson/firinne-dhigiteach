@@ -7,7 +7,9 @@ from typing import List, Dict
 import cv2
 import numpy as np
 
-VIDEO_FRAMES_DIR = Path("backend/storage/video_frames")
+BACKEND_DIR = Path(__file__).resolve().parents[1]
+STORAGE_DIR = BACKEND_DIR / "storage"
+VIDEO_FRAMES_DIR = STORAGE_DIR / "video_frames"
 VIDEO_FRAMES_DIR.mkdir(parents=True, exist_ok=True)
 
 
