@@ -25,6 +25,8 @@ import time
 from collections import deque
 import uuid
 import os
+import sys
+from importlib import metadata as importlib_metadata
 from datetime import datetime, timedelta
 import asyncio
 from dotenv import load_dotenv
@@ -35,11 +37,13 @@ from dotenv import load_dotenv
 
 # Storage + DB
 from backend.database.db import Base, engine, SessionLocal
-from backend.database.models import AnalysisRecord, VideoAnalysisRecord
+from backend.database.models import AnalysisRecord, VideoAnalysisRecord, AuditLog
 from backend.database.schemas import (
     AnalysisDetail,
     PaginatedAnalysisSummary,
     VideoAnalysisDetail,
+    PaginatedAuditLog,
+    SettingsSnapshot,
 )
 
 # Upload handling
@@ -126,6 +130,24 @@ API_KEY = os.getenv("FD_API_KEY")
 RATE_LIMIT_PER_MINUTE = int(os.getenv("FD_RATE_LIMIT_PER_MINUTE", "60"))
 RETENTION_DAYS = int(os.getenv("FD_RETENTION_DAYS", "0"))
 RETENTION_INTERVAL_HOURS = int(os.getenv("FD_RETENTION_INTERVAL_HOURS", "24"))
+PIPELINE_VERSION = os.getenv("FD_PIPELINE_VERSION", "dev")
+MODEL_VERSION = os.getenv("FD_MODEL_VERSION", "cnn-blur-jpg-0.5")
+DATASET_VERSION = os.getenv("FD_DATASET_VERSION", "unknown")
+VIDEO_MAX_DURATION_SECONDS = int(os.getenv("FD_MAX_VIDEO_SECONDS", "180"))
+VIDEO_SAMPLE_FRAMES = int(os.getenv("FD_VIDEO_MAX_FRAMES", "16"))
+CLASSIFICATION_BANDS = {
+    "ai_likely_min": 0.7,
+    "real_likely_max": 0.3,
+}
+FUSION_WEIGHTS = {
+    "ml": 0.50,
+    "metadata": 0.10,
+    "c2pa": 0.10,
+    "ela": 0.10,
+    "noise": 0.10,
+    "jpeg": 0.05,
+    "sd_watermark": 0.02,
+}
 app = FastAPI(title="Fírinne Dhigiteach API")
 
 # CORS
@@ -171,6 +193,10 @@ if not WEIGHTS.is_file():
     raise RuntimeError(
         f"Missing CNNDetection weights at {WEIGHTS}. See README for download steps."
     )
+try:
+    MODEL_WEIGHTS_HASHES = file_hashes(WEIGHTS)
+except Exception:
+    MODEL_WEIGHTS_HASHES = {"sha256": "unknown", "md5": "unknown"}
 cnndetector = CNNDetectionModel(weights_path=WEIGHTS)
 
 
@@ -194,6 +220,52 @@ def _get_client_ip(request: Request) -> str:
     if request.client:
         return request.client.host
     return "unknown"
+
+
+def _pkg_version(name: str) -> str:
+    try:
+        return importlib_metadata.version(name)
+    except Exception:
+        return "unknown"
+
+
+def _toolchain_snapshot() -> dict:
+    return {
+        "python": sys.version.split()[0],
+        "fastapi": _pkg_version("fastapi"),
+        "uvicorn": _pkg_version("uvicorn"),
+        "numpy": _pkg_version("numpy"),
+        "opencv": _pkg_version("opencv-python"),
+        "pillow": _pkg_version("Pillow"),
+        "reportlab": _pkg_version("reportlab"),
+    }
+
+
+def _log_audit(
+    action: str,
+    record_type: str | None = None,
+    record_id: int | None = None,
+    filename: str | None = None,
+    details: dict | None = None,
+    request: Request | None = None,
+) -> None:
+    actor = _get_client_ip(request) if request else "system"
+    db = SessionLocal()
+    try:
+        entry = AuditLog(
+            action=action,
+            record_type=record_type,
+            record_id=record_id,
+            filename=filename,
+            actor=actor,
+            details=details or {},
+        )
+        db.add(entry)
+        db.commit()
+    except Exception:
+        db.rollback()
+    finally:
+        db.close()
 
 
 _rate_limit_buckets: dict[str, deque[float]] = {}
@@ -559,7 +631,10 @@ async def _set_job(job_id: str, **updates) -> None:
 async def _run_video_job(job_id: str, saved_path: Path, original_name: str) -> None:
     await _set_job(job_id, status="running", started_at=datetime.utcnow().isoformat())
     try:
-        analysis = await asyncio.to_thread(run_video_analysis, saved_path)
+        hashes_before = file_hashes(saved_path)
+        analysis = await asyncio.to_thread(
+            run_video_analysis, saved_path, max_frames=VIDEO_SAMPLE_FRAMES
+        )
         video_metadata = extract_video_metadata(saved_path)
 
         thumbnail_path = THUMB_DIR / f"{uuid.uuid4().hex}_video_thumb.jpg"
@@ -570,6 +645,12 @@ async def _run_video_job(job_id: str, saved_path: Path, original_name: str) -> N
 
         db = SessionLocal()
         try:
+            hashes_after = file_hashes(saved_path)
+            video_metadata["hashes_before"] = hashes_before
+            video_metadata["hashes_after"] = hashes_after
+            video_metadata["hashes_match"] = hashes_before == hashes_after
+            video_metadata["hashes"] = hashes_before
+
             record = VideoAnalysisRecord(
                 filename=original_name,
                 saved_path=str(saved_path),
@@ -605,6 +686,22 @@ async def _run_video_job(job_id: str, saved_path: Path, original_name: str) -> N
             finished_at=datetime.utcnow().isoformat(),
             result=result,
         )
+        _log_audit(
+            action="analysis_video_completed",
+            record_type="video",
+            record_id=record.id,
+            filename=original_name,
+            details={
+                "classification": record.classification,
+                "forensic_score": record.forensic_score,
+                "job_id": job_id,
+                "pipeline_version": PIPELINE_VERSION,
+                "model_version": MODEL_VERSION,
+                "weights_sha256": MODEL_WEIGHTS_HASHES.get("sha256"),
+                "hashes_sha256": video_metadata.get("hashes", {}).get("sha256"),
+                "toolchain": _toolchain_snapshot(),
+            },
+        )
     except Exception as exc:
         saved_path.unlink(missing_ok=True)
         await _set_job(
@@ -612,6 +709,13 @@ async def _run_video_job(job_id: str, saved_path: Path, original_name: str) -> N
             status="failed",
             finished_at=datetime.utcnow().isoformat(),
             error=str(exc),
+        )
+        _log_audit(
+            action="analysis_video_failed",
+            record_type="video",
+            record_id=None,
+            filename=original_name,
+            details={"job_id": job_id, "error": str(exc)},
         )
 
 
@@ -867,6 +971,7 @@ async def analyse_media(file: UploadFile = File(...)):
 
 @app.post("/analysis/image")
 async def analyse_image(
+    request: Request,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
@@ -944,6 +1049,23 @@ async def analyse_image(
     db.refresh(record)
     created_at = record.created_at
 
+    _log_audit(
+        action="analysis_image_completed",
+        record_type="image",
+        record_id=record.id,
+        filename=original_name,
+        details={
+            "classification": fused["classification"],
+            "forensic_score": fused["final_score"],
+            "pipeline_version": PIPELINE_VERSION,
+            "model_version": MODEL_VERSION,
+            "weights_sha256": MODEL_WEIGHTS_HASHES.get("sha256"),
+            "hashes_sha256": file_integrity.get("hashes", {}).get("sha256"),
+            "toolchain": _toolchain_snapshot(),
+        },
+        request=request,
+    )
+
     # -----------------------
     # Return API response
     # -----------------------
@@ -1016,6 +1138,7 @@ async def analyse_image(
 
 @app.post("/analysis/video", response_model=VideoAnalysisDetail)
 async def analyse_video(
+    request: Request,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
@@ -1033,13 +1156,18 @@ async def analyse_video(
     if duration_seconds <= 0:
         saved_path.unlink(missing_ok=True)
         raise HTTPException(400, "Video appears to be invalid or unreadable.")
-    if duration_seconds > 180:
+    if duration_seconds > VIDEO_MAX_DURATION_SECONDS:
         saved_path.unlink(missing_ok=True)
-        raise HTTPException(400, "Video exceeds 3 minute length limit.")
+        raise HTTPException(
+            400,
+            f"Video exceeds {VIDEO_MAX_DURATION_SECONDS} second length limit.",
+        )
     hashes_before = file_hashes(saved_path)
     video_metadata = extract_video_metadata(saved_path)
 
-    analysis = await asyncio.to_thread(run_video_analysis, saved_path)
+    analysis = await asyncio.to_thread(
+        run_video_analysis, saved_path, max_frames=VIDEO_SAMPLE_FRAMES
+    )
 
     thumbnail_path = THUMB_DIR / f"{uuid.uuid4().hex}_video_thumb.jpg"
     first_frame_path = Path(analysis["frames"][0]["saved_path"])
@@ -1068,6 +1196,23 @@ async def analyse_video(
     db.commit()
     db.refresh(record)
 
+    _log_audit(
+        action="analysis_video_completed",
+        record_type="video",
+        record_id=record.id,
+        filename=original_name,
+        details={
+            "classification": record.classification,
+            "forensic_score": record.forensic_score,
+            "pipeline_version": PIPELINE_VERSION,
+            "model_version": MODEL_VERSION,
+            "weights_sha256": MODEL_WEIGHTS_HASHES.get("sha256"),
+            "hashes_sha256": video_metadata.get("hashes", {}).get("sha256"),
+            "toolchain": _toolchain_snapshot(),
+        },
+        request=request,
+    )
+
     return {
         "id": record.id,
         "filename": record.filename,
@@ -1083,7 +1228,10 @@ async def analyse_video(
 
 
 @app.post("/analysis/video/async")
-async def analyse_video_async(file: UploadFile = File(...)):
+async def analyse_video_async(
+    request: Request,
+    file: UploadFile = File(...),
+):
     if not (file.content_type or "").startswith("video/"):
         raise HTTPException(400, "Please upload a video file.")
 
@@ -1098,9 +1246,12 @@ async def analyse_video_async(file: UploadFile = File(...)):
     if duration_seconds <= 0:
         saved_path.unlink(missing_ok=True)
         raise HTTPException(400, "Video appears to be invalid or unreadable.")
-    if duration_seconds > 180:
+    if duration_seconds > VIDEO_MAX_DURATION_SECONDS:
         saved_path.unlink(missing_ok=True)
-        raise HTTPException(400, "Video exceeds 3 minute length limit.")
+        raise HTTPException(
+            400,
+            f"Video exceeds {VIDEO_MAX_DURATION_SECONDS} second length limit.",
+        )
 
     job_id = uuid.uuid4().hex
     await _set_job(
@@ -1110,6 +1261,18 @@ async def analyse_video_async(file: UploadFile = File(...)):
         filename=original_name,
     )
     asyncio.create_task(_run_video_job(job_id, saved_path, original_name))
+
+    _log_audit(
+        action="analysis_video_queued",
+        record_type="video",
+        record_id=None,
+        filename=original_name,
+        details={
+            "job_id": job_id,
+            "pipeline_version": PIPELINE_VERSION,
+        },
+        request=request,
+    )
 
     return {"job_id": job_id, "status": "queued"}
 
@@ -1121,6 +1284,85 @@ async def get_job(job_id: str):
     if not job:
         raise HTTPException(404, "Job not found")
     return job
+
+
+@app.get("/audit", response_model=PaginatedAuditLog)
+def list_audit_logs(
+    page: int = 1,
+    limit: int = 50,
+    action: str | None = None,
+    record_type: str | None = None,
+    db: Session = Depends(get_db),
+):
+    if limit > 200:
+        limit = 200
+    if page < 1:
+        page = 1
+
+    query = db.query(AuditLog)
+    if action:
+        query = query.filter(AuditLog.action == action)
+    if record_type:
+        query = query.filter(AuditLog.record_type == record_type)
+
+    total = query.count()
+    rows = (
+        query.order_by(AuditLog.created_at.desc())
+        .offset((page - 1) * limit)
+        .limit(limit)
+        .all()
+    )
+
+    data = [
+        {
+            "id": row.id,
+            "action": row.action,
+            "record_type": row.record_type,
+            "record_id": row.record_id,
+            "filename": row.filename,
+            "actor": row.actor,
+            "details": row.details,
+            "created_at": row.created_at,
+        }
+        for row in rows
+    ]
+
+    return {
+        "data": data,
+        "total": total,
+        "page": page,
+        "limit": limit,
+        "total_pages": (total + limit - 1) // limit,
+    }
+
+
+@app.get("/settings", response_model=SettingsSnapshot)
+def get_settings():
+    return {
+        "pipeline": {
+            "pipeline_version": PIPELINE_VERSION,
+            "model_version": MODEL_VERSION,
+            "dataset_version": DATASET_VERSION,
+            "weights": MODEL_WEIGHTS_HASHES,
+        },
+        "limits": {
+            "max_image_mb": MAX_IMAGE_MB,
+            "max_video_mb": MAX_VIDEO_MB,
+            "max_upload_mb": MAX_UPLOAD_MB,
+            "rate_limit_per_minute": RATE_LIMIT_PER_MINUTE,
+            "retention_days": RETENTION_DAYS,
+            "retention_interval_hours": RETENTION_INTERVAL_HOURS,
+        },
+        "thresholds": {
+            "classification_bands": CLASSIFICATION_BANDS,
+            "fusion_weights": FUSION_WEIGHTS,
+            "video_max_duration_seconds": VIDEO_MAX_DURATION_SECONDS,
+            "video_sample_frames": VIDEO_SAMPLE_FRAMES,
+            "scene_cut_threshold": 0.6,
+            "scene_cut_stride": 10,
+        },
+        "toolchain": _toolchain_snapshot(),
+    }
 
 
 # ---------------------------
@@ -1268,12 +1510,24 @@ def get_video_analysis(record_id: int, db: Session = Depends(get_db)):
 
 
 @app.get("/analysis/{record_id}/report.pdf")
-def get_image_report(record_id: int, db: Session = Depends(get_db)):
+def get_image_report(
+    record_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
     record = db.query(AnalysisRecord).filter(AnalysisRecord.id == record_id).first()
     if not record:
         raise HTTPException(404, "Record not found")
     pdf_bytes = _build_image_report_pdf(record)
     filename = f"analysis_{record_id}.pdf"
+    _log_audit(
+        action="report_generated",
+        record_type="image",
+        record_id=record.id,
+        filename=record.filename,
+        details={"format": "pdf"},
+        request=request,
+    )
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
@@ -1282,7 +1536,11 @@ def get_image_report(record_id: int, db: Session = Depends(get_db)):
 
 
 @app.get("/analysis/video/{record_id}/report.pdf")
-def get_video_report(record_id: int, db: Session = Depends(get_db)):
+def get_video_report(
+    record_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
     record = (
         db.query(VideoAnalysisRecord).filter(VideoAnalysisRecord.id == record_id).first()
     )
@@ -1290,6 +1548,14 @@ def get_video_report(record_id: int, db: Session = Depends(get_db)):
         raise HTTPException(404, "Record not found")
     pdf_bytes = _build_video_report_pdf(record)
     filename = f"video_analysis_{record_id}.pdf"
+    _log_audit(
+        action="report_generated",
+        record_type="video",
+        record_id=record.id,
+        filename=record.filename,
+        details={"format": "pdf"},
+        request=request,
+    )
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
@@ -1300,6 +1566,7 @@ def get_video_report(record_id: int, db: Session = Depends(get_db)):
 @app.delete("/analysis/{record_id}")
 def delete_analysis(
     record_id: int,
+    request: Request,
     admin_key: str = Header(None),
     db: Session = Depends(get_db),
 ):
@@ -1313,12 +1580,21 @@ def delete_analysis(
 
     _delete_analysis_record(record, db)
 
+    _log_audit(
+        action="record_deleted",
+        record_type="image",
+        record_id=record_id,
+        filename=record.filename,
+        details={"admin": True},
+        request=request,
+    )
     return {"status": "deleted", "id": record_id}
 
 
 @app.delete("/analysis/video/{record_id}")
 def delete_video_analysis(
     record_id: int,
+    request: Request,
     admin_key: str = Header(None),
     db: Session = Depends(get_db),
 ):
@@ -1334,6 +1610,14 @@ def delete_video_analysis(
 
     _delete_video_record(record, db)
 
+    _log_audit(
+        action="record_deleted",
+        record_type="video",
+        record_id=record_id,
+        filename=record.filename,
+        details={"admin": True},
+        request=request,
+    )
     return {"status": "deleted", "id": record_id}
 
 
