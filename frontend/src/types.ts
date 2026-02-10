@@ -178,3 +178,46 @@ export interface VideoJobStatus {
   result?: VideoAnalysisDetail;
   error?: string;
 }
+
+export interface AuditLogEntry {
+  id: number;
+  action: string;
+  record_type?: string | null;
+  record_id?: number | null;
+  filename?: string | null;
+  actor?: string | null;
+  details?: Record<string, unknown> | null;
+  created_at: string;
+}
+
+export interface SettingsSnapshot {
+  pipeline: {
+    pipeline_version: string;
+    model_version: string;
+    dataset_version: string;
+    weights: {
+      sha256: string;
+      md5: string;
+    };
+  };
+  limits: {
+    max_image_mb: number;
+    max_video_mb: number;
+    max_upload_mb: number;
+    rate_limit_per_minute: number;
+    retention_days: number;
+    retention_interval_hours: number;
+  };
+  thresholds: {
+    classification_bands: {
+      ai_likely_min: number;
+      real_likely_max: number;
+    };
+    fusion_weights: Record<string, number>;
+    video_max_duration_seconds: number;
+    video_sample_frames: number;
+    scene_cut_threshold: number;
+    scene_cut_stride: number;
+  };
+  toolchain: Record<string, string>;
+}
