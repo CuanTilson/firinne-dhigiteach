@@ -38,69 +38,45 @@ export const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
   const src = currentImage();
 
   return (
-    <div className="flex flex-col h-full bg-slate-800 rounded-xl overflow-hidden border border-slate-700 shadow-lg">
-      <div className="p-4 border-b border-slate-700 flex justify-between items-center bg-slate-800/50 backdrop-blur-sm">
-        <h3 className="font-semibold text-slate-200">Visual Analysis</h3>
-        <div className="flex bg-slate-900 rounded-lg p-1 gap-1">
-          <button
-            onClick={() => setMode("original")}
-            className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-2 transition-colors ${
-              mode === "original"
-                ? "bg-cyan-600 text-white"
-                : "text-slate-400 hover:text-slate-200 hover:bg-slate-800"
-            }`}
-          >
-            <Eye size={14} /> Original
-          </button>
-          <button
-            onClick={() => setMode("ela")}
-            className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-2 transition-colors ${
-              mode === "ela"
-                ? "bg-cyan-600 text-white"
-                : "text-slate-400 hover:text-slate-200 hover:bg-slate-800"
-            }`}
-          >
-            <Layers size={14} /> ELA
-          </button>
-          <button
-            onClick={() => setMode("gradcam")}
-            className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-2 transition-colors ${
-              mode === "gradcam"
-                ? "bg-cyan-600 text-white"
-                : "text-slate-400 hover:text-slate-200 hover:bg-slate-800"
-            }`}
-          >
-            <Zap size={14} /> GradCAM
-          </button>
-          <button
-            onClick={() => setMode("noise")}
-            className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-2 transition-colors ${
-              mode === "noise"
-                ? "bg-cyan-600 text-white"
-                : "text-slate-400 hover:text-slate-200 hover:bg-slate-800"
-            }`}
-          >
-            <Activity size={14} /> Noise
-          </button>
-          <button
-            onClick={() => setMode("jpeg")}
-            className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-2 transition-colors ${
-              mode === "jpeg"
-                ? "bg-cyan-600 text-white"
-                : "text-slate-400 hover:text-slate-200 hover:bg-slate-800"
-            }`}
-          >
-            <Aperture size={14} /> JPEG
-          </button>
+    <div className="fd-card overflow-hidden">
+      <div className="p-4 border-b border-slate-800 flex flex-wrap gap-3 items-center justify-between">
+        <div>
+          <div className="fd-kicker">Visual Evidence</div>
+          <h3 className="text-lg font-semibold text-slate-100 fd-title">
+            Visual Analysis
+          </h3>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {(
+            [
+              ["original", Eye, "Original"],
+              ["ela", Layers, "ELA"],
+              ["gradcam", Zap, "GradCAM"],
+              ["noise", Activity, "Noise"],
+              ["jpeg", Aperture, "JPEG"],
+            ] as const
+          ).map(([key, Icon, label]) => (
+            <button
+              key={key}
+              onClick={() => setMode(key)}
+              className={`px-3 py-1.5 rounded-full text-xs font-medium flex items-center gap-2 transition-colors border ${
+                mode === key
+                  ? "bg-cyan-500/20 text-cyan-200 border-cyan-400/40"
+                  : "text-slate-400 border-slate-800 hover:text-slate-200 hover:bg-slate-900"
+              }`}
+            >
+              <Icon size={14} /> {label}
+            </button>
+          ))}
         </div>
       </div>
 
-      <div className="relative grow bg-slate-950 flex items-center justify-center min-h-[400px]">
+      <div className="relative bg-slate-950/70 flex items-center justify-center min-h-[420px]">
         <div
           className="absolute inset-0 opacity-10"
           style={{
-            backgroundImage: "radial-gradient(#475569 1px, transparent 1px)",
-            backgroundSize: "20px 20px",
+            backgroundImage: "radial-gradient(#334155 1px, transparent 1px)",
+            backgroundSize: "24px 24px",
           }}
         ></div>
 
@@ -108,7 +84,7 @@ export const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
           <img
             src={src}
             alt={`Analysis View - ${mode}`}
-            className="max-h-[500px] w-auto max-w-full object-contain p-4 transition-opacity duration-300"
+            className="max-h-[520px] w-auto max-w-full object-contain p-6 transition-opacity duration-300"
           />
         ) : (
           <div className="text-slate-500 text-sm">
@@ -116,7 +92,7 @@ export const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
           </div>
         )}
 
-        <div className="absolute bottom-4 right-4 px-3 py-1 bg-black/70 backdrop-blur text-white text-xs rounded-full border border-white/10">
+        <div className="absolute bottom-4 right-4 fd-pill">
           Showing: {mode.toUpperCase()}
         </div>
       </div>
