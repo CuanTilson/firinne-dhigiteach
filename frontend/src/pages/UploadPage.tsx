@@ -52,10 +52,10 @@ export const UploadPage: React.FC = () => {
   useEffect(() => {
     if (!file && activeAnalysisFile) {
       setFile(activeAnalysisFile);
-      if (activeAnalysisPreview) {
-        setPreview(activeAnalysisPreview);
-        setPreviewFailed(false);
-      }
+      const refreshedPreview = URL.createObjectURL(activeAnalysisFile);
+      setPreview(refreshedPreview);
+      setPreviewFailed(false);
+      activeAnalysisPreview = refreshedPreview;
       setPersistedFilename(activeAnalysisFile.name);
     }
   }, [file]);
@@ -90,11 +90,32 @@ export const UploadPage: React.FC = () => {
       }
     };
 
+    const readSeenJobId = () => {
+      try {
+        return localStorage.getItem("fd_video_job_seen");
+      } catch {
+        return null;
+      }
+    };
+
+    const writeSeenJobId = (jobId: string) => {
+      try {
+        localStorage.setItem("fd_video_job_seen", jobId);
+      } catch {
+        // ignore
+      }
+    };
+
     const job = readJob();
     if (!job?.jobId) return;
 
     if (job.status === "completed" && job.resultId) {
-      navigate(`/videos/${job.resultId}`);
+      const seenJobId = readSeenJobId();
+      if (seenJobId !== job.jobId) {
+        writeSeenJobId(job.jobId);
+        writeJob(null);
+        navigate(`/videos/${job.resultId}`);
+      }
       return;
     }
 
@@ -133,6 +154,8 @@ export const UploadPage: React.FC = () => {
         if (status.status === "completed" && status.result?.id) {
           setLoading(false);
           setJobStatus(null);
+          writeJob(null);
+          writeSeenJobId(job.jobId);
           navigate(`/videos/${status.result.id}`);
           return;
         }
@@ -334,11 +357,14 @@ export const UploadPage: React.FC = () => {
   };
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-8">
+    <div className="max-w-7xl mx-auto px-4 py-8 space-y-6">
       {/* Header */}
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-white mb-2">New Analysis</h1>
-        <p className="text-slate-400">
+      <div>
+        <div className="fd-kicker mb-2">Evidence Intake</div>
+        <h1 className="text-3xl font-semibold text-slate-100 mb-2">
+          New Analysis
+        </h1>
+        <p className="text-slate-400 max-w-2xl">
           Upload an image or video to detect AI-generated content, manipulate
           artifacts, and metadata anomalies.
         </p>
@@ -346,13 +372,13 @@ export const UploadPage: React.FC = () => {
 
       {/* Upload Zone - Only show if no result yet */}
       {!result && (
-        <div className="mb-8 animate-fade-in">
+        <div className="animate-fade-in">
           <div
-            className={`border-2 border-dashed rounded-2xl p-10 flex flex-col items-center justify-center transition-all duration-200 
+            className={`fd-card border-dashed border-2 p-10 flex flex-col items-center justify-center transition-all duration-200 
               ${
                 preview
                   ? "border-cyan-500/50 bg-cyan-900/5"
-                  : "border-slate-700 bg-slate-800/50 hover:border-slate-500 hover:bg-slate-800"
+                  : "border-slate-800 bg-slate-950/40 hover:border-slate-600 hover:bg-slate-900/40"
               }`}
             onDragOver={(e) => e.preventDefault()}
             onDrop={handleDrop}
@@ -382,7 +408,7 @@ export const UploadPage: React.FC = () => {
               </div>
             ) : persistedFilename ? (
               <div className="text-center">
-                <div className="w-20 h-20 bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-4 text-cyan-500">
+                <div className="w-20 h-20 bg-slate-900 rounded-full flex items-center justify-center mx-auto mb-4 text-cyan-300">
                   <UploadCloud size={40} />
                 </div>
                 <h3 className="text-xl font-semibold text-slate-200 mb-2">
@@ -399,7 +425,7 @@ export const UploadPage: React.FC = () => {
               </div>
             ) : (
               <div className="text-center">
-                <div className="w-20 h-20 bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-4 text-cyan-500">
+                <div className="w-20 h-20 bg-slate-900 rounded-full flex items-center justify-center mx-auto mb-4 text-cyan-300">
                   <UploadCloud size={40} />
                 </div>
                 <h3 className="text-xl font-semibold text-slate-200 mb-2">
