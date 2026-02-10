@@ -53,3 +53,17 @@ class VideoAnalysisRecord(Base):
     video_metadata = Column(JSON)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    action = Column(String, index=True)
+    record_type = Column(String)
+    record_id = Column(Integer)
+    filename = Column(String)
+    actor = Column(String)
+    details = Column(JSON)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
