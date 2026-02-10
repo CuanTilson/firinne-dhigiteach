@@ -119,8 +119,8 @@ export const Layout: React.FC = () => {
   }, [location.pathname]);
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-200 flex flex-col md:flex-row">
-      <aside className="w-full md:w-72 bg-slate-950 border-b md:border-b-0 md:border-r border-slate-800 shrink-0">
+    <div className="min-h-screen text-slate-200 flex flex-col md:flex-row fd-app">
+      <aside className="w-full md:w-72 bg-slate-950/80 border-b md:border-b-0 md:border-r border-slate-800 shrink-0 backdrop-blur">
         <div className="p-6 border-b border-slate-800 flex items-center gap-3">
           <div className="bg-slate-900 p-2 rounded-lg border border-slate-800">
             <ScanFace className="text-cyan-300" size={22} />
@@ -129,7 +129,7 @@ export const Layout: React.FC = () => {
             <div className="text-xs uppercase tracking-[0.3em] text-slate-500">
               Forensic Suite
             </div>
-            <span className="font-semibold text-lg tracking-wide text-slate-100">
+            <span className="font-semibold text-lg tracking-wide text-slate-100 fd-title">
               Firinne Dhigiteach
             </span>
           </div>
@@ -188,12 +188,12 @@ export const Layout: React.FC = () => {
         </div>
       </aside>
 
-      <main className="grow overflow-auto bg-slate-950">
+      <main className="grow overflow-auto">
         <Outlet />
       </main>
 
       {jobToast && location.pathname !== "/" && (
-        <div className="fixed bottom-6 right-6 z-50 w-[320px] bg-slate-900 border border-slate-700 rounded-xl shadow-xl p-4">
+        <div className="fixed bottom-6 right-6 z-50 w-[320px] fd-card p-4">
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="text-sm text-slate-300 flex items-center gap-2">
