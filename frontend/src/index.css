@@ -1,1 +1,55 @@
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap");
 @import "tailwindcss";
+
+@layer base {
+  :root {
+    --fd-bg: 12 14 18;
+    --fd-panel: 18 22 30;
+    --fd-panel-strong: 24 30 40;
+    --fd-border: 36 43 58;
+    --fd-muted: 148 163 184;
+    --fd-text: 226 232 240;
+    --fd-accent: 56 189 248;
+    --fd-danger: 248 113 113;
+    --fd-success: 52 211 153;
+    --fd-warning: 251 191 36;
+  }
+
+  body {
+    font-family: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+    background-color: rgb(var(--fd-bg));
+    color: rgb(var(--fd-text));
+  }
+
+  pre,
+  code {
+    font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco,
+      Consolas, "Liberation Mono", "Courier New", monospace;
+  }
+}
+
+@layer components {
+  .fd-card {
+    @apply rounded-2xl border border-slate-800 bg-slate-900;
+  }
+
+  .fd-panel {
+    @apply rounded-xl border border-slate-800 bg-slate-950/40;
+  }
+
+  .fd-section-title {
+    @apply text-xs uppercase tracking-widest text-slate-500;
+  }
+
+  .fd-kicker {
+    @apply text-xs uppercase tracking-[0.3em] text-slate-500;
+  }
+
+  .fd-muted {
+    @apply text-slate-400;
+  }
+
+  .fd-pill {
+    @apply inline-flex items-center gap-2 rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-xs text-slate-300;
+  }
+}
