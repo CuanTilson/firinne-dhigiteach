@@ -89,6 +89,7 @@ export const VideoDetailPage: React.FC = () => {
         filename={result.filename}
         createdAt={result.created_at}
         reportUrl={`${API_BASE_URL}/analysis/video/${id}/report.pdf`}
+        printUrl={`#/print/videos/${id}`}
         hashes={{
           sha256: hashesCurrent?.sha256,
           md5: hashesCurrent?.md5,
@@ -110,7 +111,13 @@ export const VideoDetailPage: React.FC = () => {
       <div className="fd-card p-4">
         <div className="flex flex-wrap gap-4 text-sm text-slate-300">
           <div>
-            <span className="text-slate-500">Filename:</span> {result.filename}
+            <span className="text-slate-500">Filename:</span>{" "}
+            <span
+              className="truncate inline-block max-w-[260px] align-bottom"
+              title={result.filename}
+            >
+              {result.filename}
+            </span>
           </div>
           <div>
             <span className="text-slate-500">Frames:</span> {result.frame_count}
