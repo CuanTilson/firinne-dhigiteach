@@ -1,9 +1,10 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import type { AnalysisResult } from "../types";
 import { HeatmapViewer } from "./HeatmapViewer";
 import { ForensicScoreCard } from "./ForensicScoreCard";
 import { fixPath } from "../constants";
 import { CheckCircle, XCircle, FileDigit, Fingerprint } from "lucide-react";
+import { sanitizeMetadata } from "../utils/metadata";
 
 interface Props {
   result: AnalysisResult;
@@ -35,44 +36,45 @@ export const AnalysisDashboard: React.FC<Props> = ({ result }) => {
           firstTable.slice(r * 8, r * 8 + 8)
         )
       : null;
+  const safeMetadata = useMemo(
+    () => sanitizeMetadata(result.raw_metadata ?? {}),
+    [result.raw_metadata]
+  );
 
   return (
     <div className="space-y-6 animate-fade-in">
+      <div>
+        <div className="fd-section-title mb-3">Media Evidence</div>
+        <HeatmapViewer
+          elaUrl={result.ela_heatmap ? fixPath(result.ela_heatmap) : undefined}
+          gradCamUrl={
+            result.gradcam_heatmap ? fixPath(result.gradcam_heatmap) : undefined
+          }
+          noiseUrl={
+            result.noise_residual?.noise_heatmap_path
+              ? fixPath(result.noise_residual.noise_heatmap_path)
+              : undefined
+          }
+          jpegQualityUrl={
+            result.jpeg_qtables?.double_compression?.jpeg_quality_heatmap_path
+              ? fixPath(
+                  result.jpeg_qtables.double_compression
+                    .jpeg_quality_heatmap_path
+                )
+              : undefined
+          }
+          originalUrl={
+            result.saved_path ? fixPath(result.saved_path) : undefined
+          }
+        />
+      </div>
+
       <ForensicScoreCard data={result} />
 
       <div>
         <div className="fd-section-title mb-3">Evidence Panels</div>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div>
-            <HeatmapViewer
-              elaUrl={
-                result.ela_heatmap ? fixPath(result.ela_heatmap) : undefined
-              }
-              gradCamUrl={
-                result.gradcam_heatmap
-                  ? fixPath(result.gradcam_heatmap)
-                  : undefined
-              }
-              noiseUrl={
-                result.noise_residual?.noise_heatmap_path
-                  ? fixPath(result.noise_residual.noise_heatmap_path)
-                  : undefined
-              }
-              jpegQualityUrl={
-                result.jpeg_qtables?.double_compression?.jpeg_quality_heatmap_path
-                  ? fixPath(
-                      result.jpeg_qtables.double_compression
-                        .jpeg_quality_heatmap_path
-                    )
-                  : undefined
-              }
-              originalUrl={
-                result.saved_path ? fixPath(result.saved_path) : undefined
-              }
-            />
-          </div>
-
-          <div className="flex flex-col gap-4">
+          <div className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="fd-panel p-4">
                 <div className="flex items-center gap-2 mb-2">
@@ -110,45 +112,45 @@ export const AnalysisDashboard: React.FC<Props> = ({ result }) => {
                 )}
               </div>
             </div>
+          </div>
 
-            <div className="fd-panel p-4">
-              <h4 className="text-slate-200 font-semibold mb-3 flex items-center gap-2">
-                <AlertIcon className="text-yellow-500" /> Metadata Anomalies
-              </h4>
+          <div className="fd-panel p-4">
+            <h4 className="text-slate-200 font-semibold mb-3 flex items-center gap-2">
+              <AlertIcon className="text-yellow-500" /> Metadata Anomalies
+            </h4>
 
-              {result.metadata_anomalies?.findings?.length === 0 ? (
-                <p className="text-slate-500 italic text-sm">
-                  No suspicious metadata patterns found.
-                </p>
-              ) : (
-                <ul className="space-y-2">
-                  {result.metadata_anomalies?.findings?.map(
-                    (anom: string, idx: number) => (
-                      <li
-                        key={idx}
-                        className="bg-red-500/10 border border-red-500/20 text-red-200 px-3 py-2 rounded text-sm"
-                      >
-                        {anom}
-                      </li>
-                    )
-                  )}
-                </ul>
-              )}
-              {result.metadata_anomalies?.camera_consistency && (
-                <div className="mt-4 text-xs text-slate-400">
-                  <div>
-                    Camera Make:{" "}
-                    {result.metadata_anomalies.camera_consistency.make ||
-                      "Unknown"}
-                  </div>
-                  <div>
-                    Camera Model:{" "}
-                    {result.metadata_anomalies.camera_consistency.model ||
-                      "Unknown"}
-                  </div>
+            {result.metadata_anomalies?.findings?.length === 0 ? (
+              <p className="text-slate-500 italic text-sm">
+                No suspicious metadata patterns found.
+              </p>
+            ) : (
+              <ul className="space-y-2">
+                {result.metadata_anomalies?.findings?.map(
+                  (anom: string, idx: number) => (
+                    <li
+                      key={idx}
+                      className="bg-red-500/10 border border-red-500/20 text-red-200 px-3 py-2 rounded text-sm"
+                    >
+                      {anom}
+                    </li>
+                  )
+                )}
+              </ul>
+            )}
+            {result.metadata_anomalies?.camera_consistency && (
+              <div className="mt-4 text-xs text-slate-400">
+                <div>
+                  Camera Make:{" "}
+                  {result.metadata_anomalies.camera_consistency.make ||
+                    "Unknown"}
                 </div>
-              )}
-            </div>
+                <div>
+                  Camera Model:{" "}
+                  {result.metadata_anomalies.camera_consistency.model ||
+                    "Unknown"}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -193,9 +195,14 @@ export const AnalysisDashboard: React.FC<Props> = ({ result }) => {
 
           <div className="p-4">
             {activeTab === "metadata" && (
-              <pre className="text-xs text-slate-300 font-mono whitespace-pre-wrap">
-                {JSON.stringify(result.raw_metadata, null, 2)}
-              </pre>
+              <div className="space-y-3">
+                <pre className="text-xs text-slate-300 font-mono whitespace-pre-wrap">
+                  {JSON.stringify(safeMetadata, null, 2)}
+                </pre>
+                <div className="text-xs text-slate-500">
+                  Large binary fields are omitted for readability.
+                </div>
+              </div>
             )}
 
             {activeTab === "c2pa" && (
