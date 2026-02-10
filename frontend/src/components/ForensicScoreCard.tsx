@@ -81,7 +81,7 @@ export const ForensicScoreCard: React.FC<Props> = ({ data }) => {
             ></div>
           </div>
           <div className="mt-2 text-xs text-slate-500">
-            Threshold guidance: AI likely ≥ 70%, Real likely ≤ 30%.
+            Threshold guidance: AI likely &gt;= 70%, Real likely &lt;= 30%.
           </div>
         </div>
 
@@ -96,7 +96,7 @@ export const ForensicScoreCard: React.FC<Props> = ({ data }) => {
           ) : (
             <ul className="space-y-1 text-sm text-slate-300">
               {findings.map((finding, idx) => (
-                <li key={`${finding}-${idx}`}>• {finding}</li>
+                <li key={`${finding}-${idx}`}>- {finding}</li>
               ))}
             </ul>
           )}
