@@ -16,6 +16,9 @@ export interface AnalysisResult {
 
   file_integrity: {
     hashes: { sha256: string; md5: string };
+    hashes_before?: { sha256: string; md5: string };
+    hashes_after?: { sha256: string; md5: string };
+    hashes_match?: boolean;
     jpeg_structure: {
       valid_jpeg: boolean;
       missing_soi: boolean;
