@@ -5,7 +5,7 @@ import type {
   ClassificationType,
   RecordFilters,
 } from "../types";
-import { HistoryTable } from "../components/HistoryTable";
+import { CaseList } from "../components/CaseList";
 import { Button } from "../components/ui/Button";
 import { Search, Filter, RefreshCw } from "lucide-react";
 import { DEFAULT_ADMIN_KEY } from "../constants";
@@ -158,7 +158,7 @@ export const HistoryPage: React.FC = () => {
         </div>
       </div>
 
-      <HistoryTable
+      <CaseList
         records={records}
         loading={loading}
         onDelete={handleDelete}
