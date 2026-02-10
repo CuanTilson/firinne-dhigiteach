@@ -73,7 +73,7 @@ export const HistoryPage: React.FC = () => {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="fd-kicker mb-2">Archive</div>
-          <h1 className="text-3xl font-semibold text-slate-100 mb-1">
+          <h1 className="text-3xl font-semibold text-slate-100 mb-1 fd-title">
             Analysis History
           </h1>
           <p className="text-slate-400">
