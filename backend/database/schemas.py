@@ -70,3 +70,31 @@ class VideoAnalysisDetail(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class AuditLogEntry(BaseModel):
+    id: int
+    action: str
+    record_type: Optional[str]
+    record_id: Optional[int]
+    filename: Optional[str]
+    actor: Optional[str]
+    details: Optional[Any]
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class PaginatedAuditLog(BaseModel):
+    data: list[AuditLogEntry]
+    total: int
+    page: int
+    limit: int
+    total_pages: int
+
+
+class SettingsSnapshot(BaseModel):
+    pipeline: dict[str, Any]
+    limits: dict[str, Any]
+    thresholds: dict[str, Any]
+    toolchain: dict[str, Any]
