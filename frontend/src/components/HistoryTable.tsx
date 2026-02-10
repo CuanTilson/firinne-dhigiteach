@@ -26,7 +26,7 @@ export const HistoryTable: React.FC<Props> = ({
 
   if (records.length === 0) {
     return (
-      <div className="text-center py-12 bg-slate-800 rounded-lg border border-slate-700 border-dashed">
+    <div className="text-center py-12 fd-card border-dashed">
         <p className="text-slate-400">
           No analysis records found matching your filters.
         </p>
@@ -35,9 +35,9 @@ export const HistoryTable: React.FC<Props> = ({
   }
 
   return (
-    <div className="overflow-x-auto rounded-lg border border-slate-700 bg-slate-800">
+    <div className="overflow-x-auto rounded-lg border border-slate-800 bg-slate-900">
       <table className="w-full text-left text-sm text-slate-400">
-        <thead className="bg-slate-900 text-xs uppercase text-slate-200">
+        <thead className="bg-slate-950 text-xs uppercase text-slate-400">
           <tr>
             <th className="px-6 py-4 font-medium">Preview</th>
             <th className="px-6 py-4 font-medium">Filename</th>
@@ -59,10 +59,10 @@ export const HistoryTable: React.FC<Props> = ({
             return (
               <tr
                 key={record.id}
-                className="hover:bg-slate-700/50 transition-colors"
+                className="hover:bg-slate-900/60 transition-colors"
               >
               <td className="px-6 py-3">
-                <div className="h-12 w-12 rounded bg-slate-900 overflow-hidden border border-slate-600">
+                <div className="h-12 w-12 rounded bg-slate-950 overflow-hidden border border-slate-700">
                   <img
                     src={`${API_BASE_URL}${record.thumbnail_url}`}
                     alt="thumb"
@@ -98,7 +98,7 @@ export const HistoryTable: React.FC<Props> = ({
                 <div className="flex items-center justify-end gap-2">
                   <a
                     href={reportPath}
-                    className="p-2 text-slate-300 hover:bg-slate-700/50 rounded-full transition-colors"
+                    className="p-2 text-slate-300 hover:bg-slate-800 rounded-full transition-colors"
                     title="Download Report"
                   >
                     <FileDown size={18} />
