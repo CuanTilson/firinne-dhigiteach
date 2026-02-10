@@ -4,7 +4,9 @@ import { getVideoById } from "../services/api";
 import type { VideoAnalysisDetail, VideoFrameResult } from "../types";
 import { AnalysisDashboard } from "../components/AnalysisDashboard";
 import { API_BASE_URL, fixPath } from "../constants";
-import { ChevronLeft, Film, FileDown } from "lucide-react";
+import { ChevronLeft } from "lucide-react";
+import { CaseHeader } from "../components/CaseHeader";
+import { ChainOfCustody } from "../components/ChainOfCustody";
 
 export const VideoDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -52,35 +54,60 @@ export const VideoDetailPage: React.FC = () => {
     );
   }
 
+  const hashes =
+    result.video_metadata && typeof result.video_metadata === "object"
+      ? (result.video_metadata as Record<string, unknown>)
+      : null;
+  const hashesBefore =
+    hashes && typeof hashes.hashes_before === "object"
+      ? (hashes.hashes_before as Record<string, string>)
+      : null;
+  const hashesAfter =
+    hashes && typeof hashes.hashes_after === "object"
+      ? (hashes.hashes_after as Record<string, string>)
+      : null;
+  const hashesCurrent =
+    hashes && typeof hashes.hashes === "object"
+      ? (hashes.hashes as Record<string, string>)
+      : null;
+
   return (
-    <div className="max-w-7xl mx-auto px-4 py-8">
-      <div className="mb-6 flex flex-wrap items-center gap-4 justify-between">
-        <div className="flex items-center gap-4">
-          <Link
-            to="/history"
-            className="p-2 bg-slate-800 rounded-full hover:bg-slate-700 text-slate-300 transition-colors"
-          >
-            <ChevronLeft size={20} />
-          </Link>
-          <div>
-            <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-              <Film size={20} className="text-cyan-400" /> Video Case #{id}
-            </h1>
-            <p className="text-slate-500 text-sm">
-              Analysed on {new Date(result.created_at).toLocaleString()}
-            </p>
-          </div>
-        </div>
-        <a
-          href={`${API_BASE_URL}/analysis/video/${id}/report.pdf`}
-          className="px-4 py-2 rounded-lg font-medium transition-all duration-200 flex items-center justify-center gap-2 bg-slate-700 hover:bg-slate-600 text-slate-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-900 focus:ring-slate-500"
+    <div className="max-w-7xl mx-auto px-4 py-8 space-y-6">
+      <div className="flex items-center gap-4">
+        <Link
+          to="/history"
+          className="p-2 bg-slate-900 rounded-full hover:bg-slate-800 text-slate-300 transition-colors border border-slate-800"
         >
-          <FileDown size={16} />
-          Download Report
-        </a>
+          <ChevronLeft size={20} />
+        </Link>
+        <span className="text-sm text-slate-400">Back to History</span>
       </div>
 
-      <div className="bg-slate-800 rounded-lg border border-slate-700 p-4 mb-6">
+      <CaseHeader
+        title="Video Analysis"
+        caseId={id || ""}
+        filename={result.filename}
+        createdAt={result.created_at}
+        reportUrl={`${API_BASE_URL}/analysis/video/${id}/report.pdf`}
+        hashes={{
+          sha256: hashesCurrent?.sha256,
+          md5: hashesCurrent?.md5,
+          sha256_before: hashesBefore?.sha256,
+          sha256_after: hashesAfter?.sha256,
+          md5_before: hashesBefore?.md5,
+          md5_after: hashesAfter?.md5,
+        }}
+      />
+
+      <ChainOfCustody
+        steps={[
+          { label: "Upload received", timestamp: result.created_at, status: "complete" },
+          { label: "Frame sampling completed", timestamp: result.created_at, status: "complete" },
+          { label: "Analysis completed", timestamp: result.created_at, status: "complete" },
+        ]}
+      />
+
+      <div className="fd-card p-4">
         <div className="flex flex-wrap gap-4 text-sm text-slate-300">
           <div>
             <span className="text-slate-500">Filename:</span> {result.filename}
