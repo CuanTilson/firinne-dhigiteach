@@ -57,6 +57,7 @@ from backend.analysis.metadata import (
     check_camera_model_consistency,
     exif_forensics,
     analyse_file_integrity,
+    file_hashes,
 )
 from backend.analysis.forensics import (
     analyse_noise,
@@ -365,6 +366,7 @@ def _delete_video_record(record: VideoAnalysisRecord, db: Session, commit: bool 
 
 def run_full_analysis(filepath: Path) -> dict:
     file_integrity = analyse_file_integrity(filepath)
+    hashes_before = file_integrity.get("hashes") or file_hashes(filepath)
 
     ml = cnndetector.predict(filepath)
     ml_prob = ml["probability"]
@@ -445,6 +447,12 @@ def run_full_analysis(filepath: Path) -> dict:
     heatmap_path = HEATMAPS_DIR / f"{uuid.uuid4().hex}_gradcam.png"
     cam = GradCAM(cnndetector.get_model(), cnndetector.get_target_layer())
     cam.generate(ml["tensor"], filepath, heatmap_path)
+
+    hashes_after = file_hashes(filepath)
+    file_integrity["hashes_before"] = hashes_before
+    file_integrity["hashes_after"] = hashes_after
+    file_integrity["hashes_match"] = hashes_before == hashes_after
+    file_integrity["hashes"] = hashes_before
 
     return {
         "file_integrity": file_integrity,
@@ -1028,6 +1036,7 @@ async def analyse_video(
     if duration_seconds > 180:
         saved_path.unlink(missing_ok=True)
         raise HTTPException(400, "Video exceeds 3 minute length limit.")
+    hashes_before = file_hashes(saved_path)
     video_metadata = extract_video_metadata(saved_path)
 
     analysis = await asyncio.to_thread(run_video_analysis, saved_path)
@@ -1037,6 +1046,12 @@ async def analyse_video(
     with Image.open(first_frame_path) as img:
         img.thumbnail((128, 128))
         img.save(thumbnail_path, "JPEG")
+
+    hashes_after = file_hashes(saved_path)
+    video_metadata["hashes_before"] = hashes_before
+    video_metadata["hashes_after"] = hashes_after
+    video_metadata["hashes_match"] = hashes_before == hashes_after
+    video_metadata["hashes"] = hashes_before
 
     record = VideoAnalysisRecord(
         filename=original_name,
