@@ -1,6 +1,14 @@
 import React, { useEffect, useState } from "react";
 import { NavLink, Outlet, useNavigate, useLocation } from "react-router-dom";
-import { ScanFace, LayoutDashboard, History, X, Film } from "lucide-react";
+import {
+  ScanFace,
+  LayoutDashboard,
+  History,
+  ClipboardList,
+  Settings,
+  X,
+  Film,
+} from "lucide-react";
 import { checkBackend, getVideoJob } from "../services/api";
 
 export const Layout: React.FC = () => {
@@ -161,6 +169,32 @@ export const Layout: React.FC = () => {
           >
             <History size={20} />
             <span>Case History</span>
+          </NavLink>
+          <NavLink
+            to="/audit"
+            className={({ isActive }) =>
+              `flex items-center gap-3 px-4 py-3 rounded-lg transition-colors font-medium ${
+                isActive
+                  ? "bg-slate-900 text-cyan-300 border border-slate-800"
+                  : "text-slate-400 hover:text-slate-100 hover:bg-slate-900/60"
+              }`
+            }
+          >
+            <ClipboardList size={20} />
+            <span>Audit Log</span>
+          </NavLink>
+          <NavLink
+            to="/settings"
+            className={({ isActive }) =>
+              `flex items-center gap-3 px-4 py-3 rounded-lg transition-colors font-medium ${
+                isActive
+                  ? "bg-slate-900 text-cyan-300 border border-slate-800"
+                  : "text-slate-400 hover:text-slate-100 hover:bg-slate-900/60"
+              }`
+            }
+          >
+            <Settings size={20} />
+            <span>Settings</span>
           </NavLink>
         </nav>
 
