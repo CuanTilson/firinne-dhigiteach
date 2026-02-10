@@ -64,6 +64,7 @@ export const DetailPage: React.FC = () => {
         filename={result.filename}
         createdAt={result.created_at}
         reportUrl={`${API_BASE_URL}/analysis/${id}/report.pdf`}
+        printUrl={`#/print/records/${id}`}
         hashes={{
           sha256: result.file_integrity?.hashes?.sha256,
           md5: result.file_integrity?.hashes?.md5,
