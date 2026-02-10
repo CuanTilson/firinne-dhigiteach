@@ -361,7 +361,7 @@ export const UploadPage: React.FC = () => {
       {/* Header */}
       <div>
         <div className="fd-kicker mb-2">Evidence Intake</div>
-        <h1 className="text-3xl font-semibold text-slate-100 mb-2">
+        <h1 className="text-3xl font-semibold text-slate-100 mb-2 fd-title">
           New Analysis
         </h1>
         <p className="text-slate-400 max-w-2xl">
@@ -377,8 +377,8 @@ export const UploadPage: React.FC = () => {
             className={`fd-card border-dashed border-2 p-10 flex flex-col items-center justify-center transition-all duration-200 
               ${
                 preview
-                  ? "border-cyan-500/50 bg-cyan-900/5"
-                  : "border-slate-800 bg-slate-950/40 hover:border-slate-600 hover:bg-slate-900/40"
+                  ? "border-cyan-400/40 bg-cyan-900/10"
+                  : "border-slate-800/80 bg-slate-950/30 hover:border-slate-600 hover:bg-slate-900/40"
               }`}
             onDragOver={(e) => e.preventDefault()}
             onDrop={handleDrop}
