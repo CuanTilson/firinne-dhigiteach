@@ -2,9 +2,11 @@ import { API_ENDPOINTS, API_BASE_URL, DEFAULT_ADMIN_KEY, API_KEY } from "../cons
 import type {
   AnalysisRecordSummary,
   AnalysisResult,
+  AuditLogEntry,
   MediaType,
   PaginatedResponse,
   RecordFilters,
+  SettingsSnapshot,
   VideoAnalysisDetail,
   VideoJobStatus,
 } from "../types";
@@ -210,4 +212,28 @@ export const checkBackend = async (): Promise<boolean> => {
   } catch {
     return false;
   }
+};
+
+export const getAuditLogs = async (
+  page: number = 1,
+  limit: number = 50
+): Promise<PaginatedResponse<AuditLogEntry>> => {
+  const params = new URLSearchParams();
+  params.append("page", page.toString());
+  params.append("limit", limit.toString());
+  const headers: Record<string, string> = {};
+  if (API_KEY) headers["x-api-key"] = API_KEY;
+  const response = await fetch(`${API_ENDPOINTS.AUDIT}?${params.toString()}`, {
+    headers,
+  });
+  if (!response.ok) throw new Error("Failed to fetch audit logs");
+  return await response.json();
+};
+
+export const getSettings = async (): Promise<SettingsSnapshot> => {
+  const headers: Record<string, string> = {};
+  if (API_KEY) headers["x-api-key"] = API_KEY;
+  const response = await fetch(API_ENDPOINTS.SETTINGS, { headers });
+  if (!response.ok) throw new Error("Failed to fetch settings");
+  return await response.json();
 };
