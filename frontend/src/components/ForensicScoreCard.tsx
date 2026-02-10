@@ -57,7 +57,7 @@ export const ForensicScoreCard: React.FC<Props> = ({ data }) => {
     .slice(0, 3) as string[];
 
   return (
-    <div className="fd-card p-6 shadow-lg">
+    <div className="fd-card p-6">
       <div className="flex flex-col lg:flex-row gap-6">
         <div className="flex items-center gap-4">
           {getIcon()}
