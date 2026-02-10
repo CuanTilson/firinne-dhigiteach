@@ -3,7 +3,7 @@ import torch.nn.functional as F
 import numpy as np
 import cv2
 from pathlib import Path
-from PIL import Image
+from PIL import Image, ImageOps
 
 
 class GradCAM:
@@ -77,6 +77,7 @@ class GradCAM:
 
         # ——— 4. Load original image (robust to non-ASCII paths) ———
         with Image.open(original_image_path) as img:
+            img = ImageOps.exif_transpose(img)
             orig = np.array(img.convert("RGB"))
 
         # ——— 5. Upscale heatmap back to *original* dimensions ———
