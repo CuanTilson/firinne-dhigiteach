@@ -1,40 +1,47 @@
-@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Instrument+Serif:opsz@8..14&family=Sora:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap");
 @import "tailwindcss";
 
 @layer base {
   :root {
-    --fd-bg: 12 14 18;
-    --fd-panel: 18 22 30;
-    --fd-panel-strong: 24 30 40;
-    --fd-border: 36 43 58;
-    --fd-muted: 148 163 184;
+    --fd-bg: 8 11 16;
+    --fd-panel: 16 20 27;
+    --fd-panel-strong: 22 28 38;
+    --fd-border: 40 48 64;
+    --fd-muted: 138 152 173;
     --fd-text: 226 232 240;
-    --fd-accent: 56 189 248;
+    --fd-accent: 125 211 252;
     --fd-danger: 248 113 113;
     --fd-success: 52 211 153;
-    --fd-warning: 251 191 36;
+    --fd-warning: 250 204 21;
   }
 
   body {
-    font-family: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+    font-family: "Sora", system-ui, -apple-system, sans-serif;
     background-color: rgb(var(--fd-bg));
     color: rgb(var(--fd-text));
   }
 
   pre,
   code {
-    font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco,
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco,
       Consolas, "Liberation Mono", "Courier New", monospace;
   }
 }
 
 @layer components {
+  .fd-app {
+    background-image:
+      radial-gradient(circle at 10% 10%, rgba(125, 211, 252, 0.08), transparent 40%),
+      radial-gradient(circle at 90% 15%, rgba(250, 204, 21, 0.05), transparent 35%),
+      radial-gradient(circle at 70% 80%, rgba(52, 211, 153, 0.06), transparent 35%);
+  }
+
   .fd-card {
-    @apply rounded-2xl border border-slate-800 bg-slate-900;
+    @apply rounded-2xl border border-slate-800 bg-slate-950/70 shadow-[0_10px_30px_rgba(8,11,16,0.35)];
   }
 
   .fd-panel {
-    @apply rounded-xl border border-slate-800 bg-slate-950/40;
+    @apply rounded-xl border border-slate-800 bg-slate-900/60;
   }
 
   .fd-section-title {
@@ -42,7 +49,7 @@
   }
 
   .fd-kicker {
-    @apply text-xs uppercase tracking-[0.3em] text-slate-500;
+    @apply text-xs uppercase tracking-[0.35em] text-slate-500;
   }
 
   .fd-muted {
@@ -50,6 +57,11 @@
   }
 
   .fd-pill {
-    @apply inline-flex items-center gap-2 rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-xs text-slate-300;
+    @apply inline-flex items-center gap-2 rounded-full border border-slate-800 bg-slate-900/60 px-3 py-1 text-xs text-slate-300;
+  }
+
+  .fd-title {
+    font-family: "Instrument Serif", serif;
+    letter-spacing: 0.02em;
   }
 }
