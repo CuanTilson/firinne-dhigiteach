@@ -126,50 +126,48 @@ export const VideoDetailPage: React.FC = () => {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-6">
-        <div className="bg-slate-800 rounded-lg border border-slate-700 p-4">
-          <h3 className="text-slate-200 font-semibold mb-3">Frames</h3>
-          <div className="space-y-2 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
-            {result.frames.map((frame, idx) => (
-              <button
-                key={`${frame.frame_index}-${idx}`}
-                onClick={() => setSelectedIndex(idx)}
-                className={`w-full text-left flex items-center gap-3 p-2 rounded-lg border transition-colors ${
-                  selectedIndex === idx
-                    ? "border-cyan-500/50 bg-cyan-900/20"
-                    : "border-slate-700 hover:bg-slate-700/40"
-                }`}
-              >
-                <div className="h-14 w-20 bg-slate-900 rounded overflow-hidden border border-slate-700 shrink-0">
-                  <img
-                    src={fixPath(frame.saved_path)}
-                    alt={`Frame ${frame.frame_index}`}
-                    className="h-full w-full object-cover"
-                  />
+      <div className="fd-card p-4">
+        <div className="fd-section-title mb-3">Frames</div>
+        <div className="flex gap-3 overflow-x-auto pb-2">
+          {result.frames.map((frame, idx) => (
+            <button
+              key={`${frame.frame_index}-${idx}`}
+              onClick={() => setSelectedIndex(idx)}
+              className={`min-w-[160px] text-left flex flex-col gap-2 p-2 rounded-lg border transition-colors ${
+                selectedIndex === idx
+                  ? "border-cyan-400/50 bg-cyan-900/20"
+                  : "border-slate-800 hover:bg-slate-900/60"
+              }`}
+            >
+              <div className="h-24 w-full bg-slate-950 rounded overflow-hidden border border-slate-800">
+                <img
+                  src={fixPath(frame.saved_path)}
+                  alt={`Frame ${frame.frame_index}`}
+                  className="h-full w-full object-cover"
+                />
+              </div>
+              <div className="text-xs text-slate-300">
+                <div>Frame {frame.frame_index}</div>
+                <div className="text-slate-500">
+                  {frame.timestamp_sec.toFixed(2)}s
                 </div>
-                <div className="text-xs text-slate-300">
-                  <div>Frame {frame.frame_index}</div>
-                  <div className="text-slate-500">
-                    {frame.timestamp_sec.toFixed(2)}s
-                  </div>
-                  <div className="text-slate-400">
-                    Score {frame.forensic_score.toFixed(2)}
-                  </div>
+                <div className="text-slate-400">
+                  Score {frame.forensic_score.toFixed(2)}
                 </div>
-              </button>
-            ))}
-          </div>
+              </div>
+            </button>
+          ))}
         </div>
+      </div>
 
-        <div>
-          {selectedFrame ? (
-            <AnalysisDashboard result={selectedFrame} />
-          ) : (
-            <div className="text-slate-400">
-              No frames available for analysis.
-            </div>
-          )}
-        </div>
+      <div>
+        {selectedFrame ? (
+          <AnalysisDashboard result={selectedFrame} />
+        ) : (
+          <div className="text-slate-400">
+            No frames available for analysis.
+          </div>
+        )}
       </div>
     </div>
   );
