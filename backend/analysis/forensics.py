@@ -50,7 +50,9 @@ def apply_orientation(img: Image.Image) -> Image.Image:
 
 
 def _load_gray(image_path: Path):
-    img = Image.open(image_path).convert("L")
+    img = Image.open(image_path)
+    img = apply_orientation(img)
+    img = img.convert("L")
     return np.array(img, dtype=np.float32) / 255.0
 
 
