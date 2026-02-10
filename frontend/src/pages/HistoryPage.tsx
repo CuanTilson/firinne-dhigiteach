@@ -69,10 +69,11 @@ export const HistoryPage: React.FC = () => {
   };
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-8">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+    <div className="max-w-7xl mx-auto px-4 py-8 space-y-6">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-white mb-1">
+          <div className="fd-kicker mb-2">Archive</div>
+          <h1 className="text-3xl font-semibold text-slate-100 mb-1">
             Analysis History
           </h1>
           <p className="text-slate-400">
@@ -85,7 +86,7 @@ export const HistoryPage: React.FC = () => {
       </div>
 
       {/* Filters Toolbar */}
-      <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 mb-6">
+      <div className="fd-card p-4">
         <div className="flex flex-col md:flex-row gap-4 items-end">
           <div className="grow w-full md:w-auto">
             <label className="text-xs font-semibold text-slate-400 mb-1 block">
