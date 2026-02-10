@@ -13,6 +13,8 @@ export const API_ENDPOINTS = {
   VIDEO_RECORDS: `${API_BASE_URL}/analysis/video`,
   JOBS: `${API_BASE_URL}/jobs`,
   STATIC: `${API_BASE_URL}/static`,
+  AUDIT: `${API_BASE_URL}/audit`,
+  SETTINGS: `${API_BASE_URL}/settings`,
 };
 
 export const CLASSIFICATION_COLORS: Record<ClassificationType, string> = {
