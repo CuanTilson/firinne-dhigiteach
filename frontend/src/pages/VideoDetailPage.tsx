@@ -3,7 +3,7 @@ import { useParams, Link } from "react-router-dom";
 import { getVideoById } from "../services/api";
 import type { VideoAnalysisDetail, VideoFrameResult } from "../types";
 import { AnalysisDashboard } from "../components/AnalysisDashboard";
-import { API_BASE_URL, fixPath } from "../constants";
+import { fixPath } from "../constants";
 import { ChevronLeft } from "lucide-react";
 import { CaseHeader } from "../components/CaseHeader";
 import { ChainOfCustody } from "../components/ChainOfCustody";
@@ -88,7 +88,6 @@ export const VideoDetailPage: React.FC = () => {
         caseId={id || ""}
         filename={result.filename}
         createdAt={result.created_at}
-        reportUrl={`${API_BASE_URL}/analysis/video/${id}/report.pdf`}
         printUrl={`#/print/videos/${id}`}
         hashes={{
           sha256: hashesCurrent?.sha256,
