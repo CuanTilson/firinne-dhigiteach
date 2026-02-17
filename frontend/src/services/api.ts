@@ -237,3 +237,35 @@ export const getSettings = async (): Promise<SettingsSnapshot> => {
   if (!response.ok) throw new Error("Failed to fetch settings");
   return await response.json();
 };
+
+const downloadPdf = async (endpoint: string, filename: string): Promise<void> => {
+  const headers: Record<string, string> = {};
+  if (API_KEY) headers["x-api-key"] = API_KEY;
+  const response = await fetch(endpoint, { headers });
+  if (!response.ok) {
+    throw new Error(`Failed to generate PDF (${response.status})`);
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+};
+
+export const downloadImageReportPdf = async (recordId: number): Promise<void> => {
+  await downloadPdf(
+    `${API_ENDPOINTS.RECORDS}/${recordId}/report.pdf`,
+    `case_${recordId}_image_report.pdf`
+  );
+};
+
+export const downloadVideoReportPdf = async (recordId: number): Promise<void> => {
+  await downloadPdf(
+    `${API_ENDPOINTS.VIDEO_RECORDS}/${recordId}/report.pdf`,
+    `case_${recordId}_video_report.pdf`
+  );
+};
