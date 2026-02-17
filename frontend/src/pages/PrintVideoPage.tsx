@@ -3,6 +3,7 @@ import { useParams, Link } from "react-router-dom";
 import { getVideoById } from "../services/api";
 import type { VideoAnalysisDetail } from "../types";
 import { fixPath } from "../constants";
+import { ArrowLeft } from "lucide-react";
 
 export const PrintVideoPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -45,65 +46,126 @@ export const PrintVideoPage: React.FC = () => {
   }
 
   const frames = result.frames?.slice(0, 8) || [];
+  const videoMeta =
+    result.video_metadata && typeof result.video_metadata === "object"
+      ? (result.video_metadata as Record<string, unknown>)
+      : null;
+
+  const hashes =
+    videoMeta && typeof videoMeta.hashes === "object"
+      ? (videoMeta.hashes as Record<string, string>)
+      : null;
+  const handleGeneratePdf = () => {
+    window.print();
+  };
 
   return (
-    <div className="min-h-screen bg-white text-slate-900 px-8 py-10">
-      <div className="max-w-5xl mx-auto space-y-6">
-        <div className="flex items-start justify-between">
+    <div className="min-h-screen bg-slate-100 text-slate-900 px-4 py-8 print:bg-white print:p-0">
+      <div
+        className="max-w-5xl mx-auto space-y-6 bg-white border border-slate-200 rounded-xl p-6 print:border-0 print:rounded-none print:p-0"
+      >
+        <div className="flex items-start justify-between border-b border-slate-200 pb-4">
           <div>
-            <div className="text-xs uppercase tracking-widest text-slate-500">
+            <Link
+              to={`/videos/${id}`}
+              className="inline-flex items-center gap-2 text-xs text-slate-500 hover:text-slate-800 mb-2"
+            >
+              <ArrowLeft size={14} />
+              Back to Case
+            </Link>
+            <div className="text-xs uppercase tracking-[0.2em] text-slate-500">
               Forensic Report
             </div>
-            <h1 className="text-3xl font-semibold mt-1">Video Analysis</h1>
-            <p className="text-slate-500 mt-1">Case #{id}</p>
+            <h1 className="text-2xl font-semibold mt-1">
+              Firinne Dhigiteach - Video Evidence Assessment
+            </h1>
+            <p className="text-slate-500 mt-1">
+              Case #{id} | Generated {new Date(result.created_at).toUTCString()}
+            </p>
           </div>
           <button
-            onClick={() => window.print()}
-            className="px-4 py-2 rounded border border-slate-300 text-sm"
+            onClick={handleGeneratePdf}
+            className="px-4 py-2 rounded border border-slate-300 text-sm print:hidden"
           >
-            Print
+            Print / Save PDF
           </button>
         </div>
 
-        <section className="border border-slate-200 rounded-lg p-4 grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-          <div>
-            <div className="text-slate-500 text-xs uppercase">Filename</div>
-            <div className="font-medium">{result.filename}</div>
-          </div>
-          <div>
-            <div className="text-slate-500 text-xs uppercase">Created</div>
-            <div className="font-medium">
-              {new Date(result.created_at).toISOString()}
+        <section className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+          <div className="border border-slate-200 rounded-lg p-4 space-y-3">
+            <div className="text-xs uppercase tracking-wider text-slate-500">
+              Case Metadata
+            </div>
+            <div>
+              <div className="text-slate-500 text-xs uppercase">Filename</div>
+              <div className="font-medium break-all">{result.filename}</div>
+            </div>
+            <div>
+              <div className="text-slate-500 text-xs uppercase">Classification</div>
+              <div className="font-medium">{result.classification}</div>
+            </div>
+            <div>
+              <div className="text-slate-500 text-xs uppercase">Forensic Score</div>
+              <div className="font-medium">{result.forensic_score.toFixed(3)}</div>
+            </div>
+            <div>
+              <div className="text-slate-500 text-xs uppercase">Frame Count</div>
+              <div className="font-medium">{result.frame_count}</div>
             </div>
           </div>
-          <div>
-            <div className="text-slate-500 text-xs uppercase">Classification</div>
-            <div className="font-medium">{result.classification}</div>
-          </div>
-          <div>
-            <div className="text-slate-500 text-xs uppercase">Forensic Score</div>
-            <div className="font-medium">{result.forensic_score.toFixed(3)}</div>
+
+          <div className="border border-slate-200 rounded-lg p-4 space-y-3">
+            <div className="text-xs uppercase tracking-wider text-slate-500">
+              Integrity Snapshot
+            </div>
+            <div>
+              <div className="text-slate-500 text-xs uppercase">SHA-256</div>
+              <div className="font-mono text-xs break-all">
+                {hashes?.sha256 || "Not available"}
+              </div>
+            </div>
+            <div>
+              <div className="text-slate-500 text-xs uppercase">MD5</div>
+              <div className="font-mono text-xs break-all">
+                {hashes?.md5 || "Not available"}
+              </div>
+            </div>
+            <div>
+              <div className="text-slate-500 text-xs uppercase">Model Note</div>
+              <div className="text-slate-700">
+                Classification is based on sampled frame analysis.
+              </div>
+            </div>
           </div>
         </section>
 
         <section className="border border-slate-200 rounded-lg p-4">
-          <div className="text-xs uppercase text-slate-500 mb-3">
-            Sample Frames
+          <div className="text-xs uppercase tracking-wider text-slate-500 mb-3">
+            Sample Frame Exhibits
           </div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             {frames.map((frame) => (
-              <div key={frame.frame_index} className="border border-slate-200 rounded">
+              <figure
+                key={frame.frame_index}
+                className="border border-slate-200 rounded-lg overflow-hidden"
+              >
                 <img
                   src={fixPath(frame.saved_path)}
                   alt={`Frame ${frame.frame_index}`}
-                  className="w-full h-32 object-cover"
+                  className="w-full h-28 object-cover"
+                  crossOrigin="anonymous"
                 />
-                <div className="p-2 text-xs text-slate-600">
-                  Frame {frame.frame_index} - {frame.timestamp_sec.toFixed(2)}s
-                </div>
-              </div>
+                <figcaption className="p-2 text-xs text-slate-700">
+                  Frame {frame.frame_index} | {frame.timestamp_sec.toFixed(2)}s
+                </figcaption>
+              </figure>
             ))}
           </div>
+        </section>
+
+        <section className="text-[11px] text-slate-500 border-t border-slate-200 pt-3">
+          This report is decision-support evidence and should be interpreted with
+          contextual forensic review.
         </section>
       </div>
     </div>
