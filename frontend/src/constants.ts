@@ -35,10 +35,19 @@ export const fixPath = (p?: string | null): string | undefined => {
   if (!p || typeof p !== "string") return undefined;
 
   // normalise backslashes
-  let clean = p.replace(/\\/g, "/");
+  let clean = p.replace(/\\/g, "/").trim();
+
+  if (/^https?:\/\//i.test(clean)) {
+    return clean;
+  }
+
+  if (clean.startsWith("/")) {
+    clean = clean.slice(1);
+  }
 
   // strip any leading system path up to backend/storage/
   clean = clean.replace(/.*backend\/storage\//, "");
+  clean = clean.replace(/.*storage\//, "");
 
   if (clean.startsWith("uploaded/")) {
     return `${API_BASE_URL}/uploaded/${clean.slice("uploaded/".length)}`;
