@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { UploadCloud, AlertCircle } from "lucide-react";
-import { detectImage, detectVideo, detectVideoAsync, getVideoJob } from "../services/api";
+import { detectImage, detectVideoAsync, getVideoJob } from "../services/api";
 import type { AnalysisResult, VideoAnalysisDetail } from "../types";
 import { AnalysisDashboard } from "../components/AnalysisDashboard";
 import { Button } from "../components/ui/Button";
