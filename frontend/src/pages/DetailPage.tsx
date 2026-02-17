@@ -4,7 +4,6 @@ import { getRecordById } from "../services/api";
 import type { AnalysisResult } from "../types";
 import { AnalysisDashboard } from "../components/AnalysisDashboard";
 import { ChevronLeft } from "lucide-react";
-import { API_BASE_URL } from "../constants";
 import { CaseHeader } from "../components/CaseHeader";
 import { ChainOfCustody } from "../components/ChainOfCustody";
 
@@ -63,7 +62,6 @@ export const DetailPage: React.FC = () => {
         caseId={id || ""}
         filename={result.filename}
         createdAt={result.created_at}
-        reportUrl={`${API_BASE_URL}/analysis/${id}/report.pdf`}
         printUrl={`#/print/records/${id}`}
         hashes={{
           sha256: result.file_integrity?.hashes?.sha256,
