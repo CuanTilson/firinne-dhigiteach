@@ -1,7 +1,7 @@
 import React from "react";
 import type { AnalysisRecordSummary } from "../types";
 import { Badge } from "./ui/Badge";
-import { Eye, Trash2, Calendar, Film, FileDown, Printer } from "lucide-react";
+import { Eye, Trash2, Calendar, Film, Printer } from "lucide-react";
 import { API_BASE_URL } from "../constants";
 import { Link } from "react-router-dom";
 
@@ -37,10 +37,6 @@ export const CaseList: React.FC<Props> = ({ records, loading, onDelete }) => {
           record.media_type === "video"
             ? `/videos/${record.id}`
             : `/records/${record.id}`;
-        const reportPath =
-          record.media_type === "video"
-            ? `${API_BASE_URL}/analysis/video/${record.id}/report.pdf`
-            : `${API_BASE_URL}/analysis/${record.id}/report.pdf`;
         const printPath =
           record.media_type === "video"
             ? `#/print/videos/${record.id}`
@@ -74,7 +70,7 @@ export const CaseList: React.FC<Props> = ({ records, loading, onDelete }) => {
                   {record.filename}
                 </div>
                 <div className="text-xs text-slate-500 mt-1">
-                  Case #{record.id} · {record.media_type}
+                  Case #{record.id} - {record.media_type}
                 </div>
                 <div className="mt-2 flex flex-wrap gap-2 items-center text-xs">
                   <Badge type={record.classification} />
@@ -100,18 +96,11 @@ export const CaseList: React.FC<Props> = ({ records, loading, onDelete }) => {
                 View
               </Link>
               <a
-                href={reportPath}
-                className="px-3 py-2 rounded-full text-xs font-medium border border-slate-800 bg-slate-900/70 text-slate-200 hover:bg-slate-800 transition-colors inline-flex items-center gap-2"
-              >
-                <FileDown size={14} />
-                Report
-              </a>
-              <a
                 href={printPath}
                 className="px-3 py-2 rounded-full text-xs font-medium border border-slate-800 bg-slate-900/70 text-slate-200 hover:bg-slate-800 transition-colors inline-flex items-center gap-2"
               >
                 <Printer size={14} />
-                Print
+                Report
               </a>
               <button
                 onClick={() => onDelete(record.id, record.media_type)}
