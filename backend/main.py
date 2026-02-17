@@ -14,6 +14,7 @@ from starlette.requests import Request
 from PIL import Image, ImageOps
 
 from reportlab.lib.pagesizes import A4
+from reportlab.lib import colors
 from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
 
@@ -21,6 +22,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import select, literal, union_all, func
 from pathlib import Path
 import io
+import json
 import time
 from collections import deque
 import uuid
@@ -291,7 +293,18 @@ def _rate_limit_allowed(client_id: str) -> bool:
 @app.middleware("http")
 async def auth_and_rate_limit(request: Request, call_next):
     path = request.url.path
-    if path in {"/health", "/openapi.json"} or path.startswith("/docs") or path.startswith("/redoc"):
+    public_prefixes = (
+        "/docs",
+        "/redoc",
+        "/uploaded/",
+        "/ela/",
+        "/heatmaps/",
+        "/thumbnails/",
+        "/video_frames/",
+        "/noise/",
+        "/jpeg_quality/",
+    )
+    if path in {"/health", "/openapi.json"} or path.startswith(public_prefixes):
         return await call_next(request)
 
     if API_KEY:
@@ -757,21 +770,31 @@ def _safe_text(value) -> str:
     return str(value)
 
 
-def _draw_wrapped_text(pdf: canvas.Canvas, text: str, x: float, y: float, max_width: float) -> float:
+def _draw_wrapped_text(
+    pdf: canvas.Canvas,
+    text: str,
+    x: float,
+    y: float,
+    max_width: float,
+    font_name: str = "Helvetica",
+    font_size: int = 10,
+    line_height: float = 14,
+) -> float:
     words = text.split()
     if not words:
         return y
+    pdf.setFont(font_name, font_size)
     line = words[0]
     for word in words[1:]:
         candidate = f"{line} {word}"
-        if pdf.stringWidth(candidate, "Helvetica", 10) <= max_width:
+        if pdf.stringWidth(candidate, font_name, font_size) <= max_width:
             line = candidate
         else:
             pdf.drawString(x, y, line)
-            y -= 14
+            y -= line_height
             line = word
     pdf.drawString(x, y, line)
-    return y - 14
+    return y - line_height
 
 
 def _try_add_image(
@@ -795,48 +818,243 @@ def _try_add_image(
         return y
 
 
+def _ensure_page_space(
+    pdf: canvas.Canvas,
+    y: float,
+    min_space: float,
+    page_height: float,
+    page_top: float = 40,
+) -> float:
+    if y < min_space:
+        pdf.showPage()
+        return page_height - page_top
+    return y
+
+
+def _start_report_page(
+    pdf: canvas.Canvas,
+    width: float,
+    height: float,
+    title: str,
+    subtitle: str,
+) -> float:
+    pdf.setFillColor(colors.HexColor("#0f172a"))
+    pdf.rect(0, height - 82, width, 82, stroke=0, fill=1)
+    pdf.setFillColor(colors.white)
+    pdf.setFont("Helvetica-Bold", 16)
+    pdf.drawString(40, height - 38, title)
+    pdf.setFont("Helvetica", 9)
+    pdf.drawString(40, height - 56, subtitle)
+    pdf.setFillColor(colors.black)
+    return height - 102
+
+
+def _draw_page_footer(pdf: canvas.Canvas, width: float) -> None:
+    y = 24
+    pdf.setStrokeColor(colors.HexColor("#cbd5e1"))
+    pdf.line(40, y + 8, width - 40, y + 8)
+    pdf.setFont("Helvetica", 8)
+    pdf.setFillColor(colors.HexColor("#475569"))
+    pdf.drawString(40, y, "Firinne Dhigiteach Forensic Report")
+    pdf.drawRightString(width - 40, y, f"Page {pdf.getPageNumber()}")
+    pdf.setFillColor(colors.black)
+
+
+def _draw_section_header(pdf: canvas.Canvas, title: str, y: float, page_width: float) -> float:
+    bar_h = 16
+    pdf.setFillColor(colors.HexColor("#1d4ed8"))
+    pdf.roundRect(40, y - bar_h + 2, page_width - 80, bar_h, 4, stroke=0, fill=1)
+    pdf.setFillColor(colors.white)
+    pdf.setFont("Helvetica-Bold", 10)
+    pdf.drawString(48, y - 9, title)
+    pdf.setFillColor(colors.black)
+    return y - 20
+
+
+def _truncate_value(value, max_len: int = 240) -> str:
+    text = _safe_text(value)
+    if len(text) > max_len:
+        return f"{text[:max_len]}..."
+    return text
+
+
+def _draw_key_value_section(
+    pdf: canvas.Canvas,
+    title: str,
+    items: list[tuple[str, str]],
+    y: float,
+    page_width: float,
+    page_height: float,
+) -> float:
+    y = _ensure_page_space(pdf, y, 110, page_height)
+    y = _draw_section_header(pdf, title, y, page_width)
+    for key, value in items:
+        y = _ensure_page_space(pdf, y, 80, page_height)
+        pdf.setFont("Helvetica-Bold", 9)
+        pdf.setFillColor(colors.HexColor("#0f172a"))
+        pdf.drawString(44, y, f"{key}")
+        y = _draw_wrapped_text(
+            pdf,
+            _safe_text(value),
+            180,
+            y,
+            page_width - 224,
+            font_name="Helvetica",
+            font_size=9,
+            line_height=12,
+        )
+        pdf.setStrokeColor(colors.HexColor("#e2e8f0"))
+        pdf.line(44, y + 5, page_width - 44, y + 5)
+        y -= 2
+    pdf.setFillColor(colors.black)
+    return y - 4
+
+
+def _draw_bullets(
+    pdf: canvas.Canvas,
+    title: str,
+    values: list[str],
+    y: float,
+    page_width: float,
+    page_height: float,
+    limit: int = 10,
+) -> float:
+    if not values:
+        return y
+    y = _ensure_page_space(pdf, y, 110, page_height)
+    y = _draw_section_header(pdf, title, y, page_width)
+    pdf.setFont("Helvetica", 9)
+    for value in values[:limit]:
+        y = _ensure_page_space(pdf, y, 80, page_height)
+        y = _draw_wrapped_text(
+            pdf,
+            f"- {_truncate_value(value, 320)}",
+            50,
+            y,
+            page_width - 100,
+            font_name="Helvetica",
+            font_size=9,
+            line_height=12,
+        )
+    return y - 4
+
+
+def _sanitize_metadata_for_report(value):
+    if isinstance(value, dict):
+        cleaned = {}
+        for k, v in value.items():
+            key_text = _safe_text(k)
+            if key_text.lower() in {"jpegthumbnail", "thumbnail", "icc_profile"}:
+                cleaned[key_text] = "[omitted binary-like field]"
+                continue
+            cleaned[key_text] = _sanitize_metadata_for_report(v)
+        return cleaned
+    if isinstance(value, list):
+        return [_sanitize_metadata_for_report(v) for v in value[:40]]
+    if isinstance(value, str) and len(value) > 500:
+        return f"{value[:500]}..."
+    return value
+
+
 def _build_image_report_pdf(record: AnalysisRecord) -> bytes:
     buffer = io.BytesIO()
     pdf = canvas.Canvas(buffer, pagesize=A4)
     width, height = A4
-    y = height - 40
-
-    pdf.setFont("Helvetica-Bold", 16)
-    pdf.drawString(40, y, "Fírinne Dhigiteach - Image Analysis Report")
-    y -= 24
-
-    pdf.setFont("Helvetica", 10)
-    y = _draw_wrapped_text(pdf, f"Filename: {_safe_text(record.filename)}", 40, y, width - 80)
-    y = _draw_wrapped_text(pdf, f"Created: {_safe_text(record.created_at)}", 40, y, width - 80)
-    y = _draw_wrapped_text(pdf, f"Classification: {_safe_text(record.classification)}", 40, y, width - 80)
-    y = _draw_wrapped_text(
+    y = _start_report_page(
         pdf,
-        f"Forensic score: {_safe_text(round(record.forensic_score or 0.0, 4))}",
-        40,
-        y,
-        width - 80,
+        width,
+        height,
+        "Firinne Dhigiteach - Image Analysis Report",
+        f"Case #{record.id} | Generated: {_safe_text(record.created_at)}",
     )
 
-    findings = []
+    y = _draw_key_value_section(
+        pdf,
+        "Case Summary",
+        [
+            ("Record ID", _safe_text(record.id)),
+            ("Filename", _truncate_value(record.filename, 180)),
+            ("Created", _safe_text(record.created_at)),
+            ("Classification", _safe_text(record.classification)),
+            ("Forensic score", _safe_text(round(record.forensic_score or 0.0, 4))),
+            ("ML label", _safe_text(record.ml_label)),
+            (
+                "ML probability",
+                _safe_text(round(record.ml_probability or 0.0, 4)),
+            ),
+        ],
+        y,
+        width,
+        height,
+    )
+
+    findings: list[str] = []
+    anomaly_score = "-"
     if isinstance(record.metadata_anomalies, dict):
         findings = record.metadata_anomalies.get("findings") or []
-    if findings:
-        y -= 6
-        pdf.setFont("Helvetica-Bold", 11)
-        pdf.drawString(40, y, "Metadata Findings (sample):")
-        y -= 14
-        pdf.setFont("Helvetica", 10)
-        for item in findings[:8]:
-            y = _draw_wrapped_text(pdf, f"- {_safe_text(item)}", 50, y, width - 100)
-            if y < 120:
-                pdf.showPage()
-                y = height - 40
-                pdf.setFont("Helvetica", 10)
+        anomaly_score = _safe_text(record.metadata_anomalies.get("anomaly_score"))
 
-    y -= 6
-    pdf.setFont("Helvetica-Bold", 11)
-    pdf.drawString(40, y, "Key Artifacts")
-    y -= 14
+    file_integrity = record.file_integrity if isinstance(record.file_integrity, dict) else {}
+    hashes_before = file_integrity.get("hashes_before") if isinstance(file_integrity.get("hashes_before"), dict) else {}
+    hashes_after = file_integrity.get("hashes_after") if isinstance(file_integrity.get("hashes_after"), dict) else {}
+    hashes_fallback = file_integrity.get("hashes") if isinstance(file_integrity.get("hashes"), dict) else {}
+
+    y = _draw_key_value_section(
+        pdf,
+        "Integrity and Traceability",
+        [
+            ("SHA-256 (before)", _truncate_value(hashes_before.get("sha256") or hashes_fallback.get("sha256"), 120)),
+            ("SHA-256 (after)", _truncate_value(hashes_after.get("sha256") or hashes_fallback.get("sha256"), 120)),
+            ("MD5 (before)", _truncate_value(hashes_before.get("md5") or hashes_fallback.get("md5"), 80)),
+            ("MD5 (after)", _truncate_value(hashes_after.get("md5") or hashes_fallback.get("md5"), 80)),
+            ("Hashes match", _safe_text(file_integrity.get("hashes_match"))),
+            (
+                "JPEG structure valid",
+                _safe_text((file_integrity.get("jpeg_structure") or {}).get("valid_jpeg")),
+            ),
+            ("Metadata anomaly score", anomaly_score),
+        ],
+        y,
+        width,
+        height,
+    )
+
+    c2pa = record.c2pa if isinstance(record.c2pa, dict) else {}
+    watermark = record.ai_watermark if isinstance(record.ai_watermark, dict) else {}
+    jpeg = record.jpeg_qtables if isinstance(record.jpeg_qtables, dict) else {}
+    noise = record.noise_residual if isinstance(record.noise_residual, dict) else {}
+
+    y = _draw_key_value_section(
+        pdf,
+        "Forensic Signals",
+        [
+            ("C2PA present", _safe_text(c2pa.get("has_c2pa"))),
+            ("C2PA signature valid", _safe_text(c2pa.get("signature_valid"))),
+            ("C2PA score", _safe_text(c2pa.get("overall_c2pa_score"))),
+            ("AI watermark signal", _safe_text(watermark.get("stable_diffusion_detected"))),
+            ("Watermark confidence", _safe_text(watermark.get("confidence"))),
+            ("JPEG quality estimate", _safe_text(jpeg.get("quality_estimate"))),
+            ("JPEG inconsistency score", _safe_text(jpeg.get("inconsistency_score"))),
+            ("Noise mean residual", _safe_text(noise.get("mean_residual"))),
+        ],
+        y,
+        width,
+        height,
+    )
+
+    y = _draw_bullets(pdf, "Metadata Findings (sample)", findings, y, width, height, limit=12)
+    y = _draw_bullets(
+        pdf,
+        "C2PA Assertions (sample)",
+        [str(x) for x in (c2pa.get("ai_assertions_found") or [])],
+        y,
+        width,
+        height,
+        limit=8,
+    )
+
+    y = _ensure_page_space(pdf, y, 180, height)
+    y = _draw_section_header(pdf, "Key Artifacts", y, width)
 
     pdf.setFont("Helvetica", 10)
     y = _try_add_image(pdf, record.thumbnail_path, 40, y, 160, 120)
@@ -848,7 +1066,34 @@ def _build_image_report_pdf(record: AnalysisRecord) -> bytes:
         noise_heatmap = record.noise_residual.get("noise_heatmap_path")
     y = _try_add_image(pdf, noise_heatmap, 40, y, 160, 120)
 
+    _draw_page_footer(pdf, width)
     pdf.showPage()
+    y = _start_report_page(
+        pdf,
+        width,
+        height,
+        "Metadata Appendix (Sanitized)",
+        f"Case #{record.id}",
+    )
+    pdf.setFont("Helvetica", 9)
+    metadata_payload = _sanitize_metadata_for_report(record.metadata_json or {})
+    metadata_text = json.dumps(metadata_payload, indent=2, ensure_ascii=True)
+    for line in metadata_text.splitlines():
+        y = _ensure_page_space(pdf, y, 60, height)
+        y = _draw_wrapped_text(pdf, line, 40, y, width - 80)
+
+    y = _ensure_page_space(pdf, y, 120, height)
+    toolchain = _toolchain_snapshot()
+    y = _draw_key_value_section(
+        pdf,
+        "Toolchain Snapshot",
+        [(k, _safe_text(v)) for k, v in toolchain.items()],
+        y,
+        width,
+        height,
+    )
+
+    _draw_page_footer(pdf, width)
     pdf.save()
     buffer.seek(0)
     return buffer.read()
@@ -858,28 +1103,56 @@ def _build_video_report_pdf(record: VideoAnalysisRecord) -> bytes:
     buffer = io.BytesIO()
     pdf = canvas.Canvas(buffer, pagesize=A4)
     width, height = A4
-    y = height - 40
-
-    pdf.setFont("Helvetica-Bold", 16)
-    pdf.drawString(40, y, "Fírinne Dhigiteach - Video Analysis Report")
-    y -= 24
-
-    pdf.setFont("Helvetica", 10)
-    y = _draw_wrapped_text(pdf, f"Filename: {_safe_text(record.filename)}", 40, y, width - 80)
-    y = _draw_wrapped_text(pdf, f"Created: {_safe_text(record.created_at)}", 40, y, width - 80)
-    y = _draw_wrapped_text(pdf, f"Classification: {_safe_text(record.classification)}", 40, y, width - 80)
-    y = _draw_wrapped_text(
+    y = _start_report_page(
         pdf,
-        f"Forensic score: {_safe_text(round(record.forensic_score or 0.0, 4))}",
-        40,
-        y,
-        width - 80,
+        width,
+        height,
+        "Firinne Dhigiteach - Video Analysis Report",
+        f"Case #{record.id} | Generated: {_safe_text(record.created_at)}",
     )
-    y = _draw_wrapped_text(pdf, f"Frame count: {_safe_text(record.frame_count)}", 40, y, width - 80)
 
-    pdf.setFont("Helvetica-Bold", 11)
-    pdf.drawString(40, y - 6, "Sample Frames")
-    y -= 20
+    video_metadata = record.video_metadata if isinstance(record.video_metadata, dict) else {}
+    hashes_before = video_metadata.get("hashes_before") if isinstance(video_metadata.get("hashes_before"), dict) else {}
+    hashes_after = video_metadata.get("hashes_after") if isinstance(video_metadata.get("hashes_after"), dict) else {}
+    hashes_fallback = video_metadata.get("hashes") if isinstance(video_metadata.get("hashes"), dict) else {}
+
+    y = _draw_key_value_section(
+        pdf,
+        "Case Summary",
+        [
+            ("Record ID", _safe_text(record.id)),
+            ("Filename", _truncate_value(record.filename, 180)),
+            ("Created", _safe_text(record.created_at)),
+            ("Classification", _safe_text(record.classification)),
+            ("Forensic score", _safe_text(round(record.forensic_score or 0.0, 4))),
+            ("Frame count", _safe_text(record.frame_count)),
+        ],
+        y,
+        width,
+        height,
+    )
+
+    y = _draw_key_value_section(
+        pdf,
+        "Integrity and Traceability",
+        [
+            ("SHA-256 (before)", _truncate_value(hashes_before.get("sha256") or hashes_fallback.get("sha256"), 120)),
+            ("SHA-256 (after)", _truncate_value(hashes_after.get("sha256") or hashes_fallback.get("sha256"), 120)),
+            ("MD5 (before)", _truncate_value(hashes_before.get("md5") or hashes_fallback.get("md5"), 80)),
+            ("MD5 (after)", _truncate_value(hashes_after.get("md5") or hashes_fallback.get("md5"), 80)),
+            ("Hashes match", _safe_text(video_metadata.get("hashes_match"))),
+            ("Duration (sec)", _safe_text(video_metadata.get("duration_seconds"))),
+            ("FPS", _safe_text(video_metadata.get("fps"))),
+            ("Resolution", _safe_text(video_metadata.get("resolution"))),
+            ("Codec", _safe_text(video_metadata.get("codec"))),
+        ],
+        y,
+        width,
+        height,
+    )
+
+    y = _ensure_page_space(pdf, y, 180, height)
+    y = _draw_section_header(pdf, "Sample Frames", y, width)
 
     frames = []
     if isinstance(record.frames_json, list):
@@ -896,7 +1169,34 @@ def _build_video_report_pdf(record: VideoAnalysisRecord) -> bytes:
             x = 40
             y -= 20
 
+    _draw_page_footer(pdf, width)
     pdf.showPage()
+    y = _start_report_page(
+        pdf,
+        width,
+        height,
+        "Video Metadata Appendix",
+        f"Case #{record.id}",
+    )
+    pdf.setFont("Helvetica", 9)
+    sanitized_video_meta = _sanitize_metadata_for_report(video_metadata)
+    video_meta_text = json.dumps(sanitized_video_meta, indent=2, ensure_ascii=True)
+    for line in video_meta_text.splitlines():
+        y = _ensure_page_space(pdf, y, 60, height)
+        y = _draw_wrapped_text(pdf, line, 40, y, width - 80)
+
+    y = _ensure_page_space(pdf, y, 120, height)
+    toolchain = _toolchain_snapshot()
+    y = _draw_key_value_section(
+        pdf,
+        "Toolchain Snapshot",
+        [(k, _safe_text(v)) for k, v in toolchain.items()],
+        y,
+        width,
+        height,
+    )
+
+    _draw_page_footer(pdf, width)
     pdf.save()
     buffer.seek(0)
     return buffer.read()
