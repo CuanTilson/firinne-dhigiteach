@@ -39,11 +39,17 @@ from dotenv import load_dotenv
 
 # Storage + DB
 from backend.database.db import Base, engine, SessionLocal
-from backend.database.models import AnalysisRecord, VideoAnalysisRecord, AuditLog
+from backend.database.models import (
+    AnalysisRecord,
+    VideoAnalysisRecord,
+    AudioAnalysisRecord,
+    AuditLog,
+)
 from backend.database.schemas import (
     AnalysisDetail,
     PaginatedAnalysisSummary,
     VideoAnalysisDetail,
+    AudioAnalysisDetail,
     PaginatedAuditLog,
     SettingsSnapshot,
 )
@@ -53,6 +59,7 @@ from backend.analysis.upload import (
     save_uploaded_file,
     IMAGE_EXTENSIONS,
     VIDEO_EXTENSIONS,
+    AUDIO_EXTENSIONS,
 )
 
 # Metadata + forensic tools
@@ -77,6 +84,7 @@ from backend.analysis.forensics import (
 from backend.analysis.c2pa_analyser import analyse_c2pa
 from backend.analysis.forensic_fusion import fuse_forensic_scores
 from backend.analysis.video import sample_video_frames, get_video_duration_seconds
+from backend.analysis.audio import analyse_audio_file
 
 # ML model + explainability
 from backend.models.cnndetect_native import CNNDetectionModel
@@ -100,6 +108,7 @@ THUMB_DIR = STORAGE_DIR / "thumbnails"
 VIDEO_FRAMES_DIR = STORAGE_DIR / "video_frames"
 NOISE_DIR = STORAGE_DIR / "noise"
 JPEG_QUALITY_DIR = STORAGE_DIR / "jpeg_quality"
+AUDIO_PLOTS_DIR = STORAGE_DIR / "audio_plots"
 
 ELA_DIR.mkdir(parents=True, exist_ok=True)
 HEATMAPS_DIR.mkdir(parents=True, exist_ok=True)
@@ -107,6 +116,7 @@ THUMB_DIR.mkdir(parents=True, exist_ok=True)
 VIDEO_FRAMES_DIR.mkdir(parents=True, exist_ok=True)
 NOISE_DIR.mkdir(parents=True, exist_ok=True)
 JPEG_QUALITY_DIR.mkdir(parents=True, exist_ok=True)
+AUDIO_PLOTS_DIR.mkdir(parents=True, exist_ok=True)
 
 ADMIN_KEY = os.getenv("FD_ADMIN_KEY")
 ALLOW_INSECURE_ADMIN_KEY = os.getenv("FD_ALLOW_INSECURE_ADMIN_KEY") == "1"
@@ -127,6 +137,7 @@ ALLOWED_ORIGINS_LIST = ["*"] if ALLOWED_ORIGINS == "*" else [
 
 MAX_IMAGE_MB = float(os.getenv("FD_MAX_IMAGE_MB", "20"))
 MAX_VIDEO_MB = float(os.getenv("FD_MAX_VIDEO_MB", "200"))
+MAX_AUDIO_MB = float(os.getenv("FD_MAX_AUDIO_MB", "50"))
 MAX_UPLOAD_MB = float(os.getenv("FD_MAX_UPLOAD_MB", "200"))
 API_KEY = os.getenv("FD_API_KEY")
 RATE_LIMIT_PER_MINUTE = int(os.getenv("FD_RATE_LIMIT_PER_MINUTE", "60"))
@@ -137,6 +148,10 @@ MODEL_VERSION = os.getenv("FD_MODEL_VERSION", "cnn-blur-jpg-0.5")
 DATASET_VERSION = os.getenv("FD_DATASET_VERSION", "unknown")
 VIDEO_MAX_DURATION_SECONDS = int(os.getenv("FD_MAX_VIDEO_SECONDS", "180"))
 VIDEO_SAMPLE_FRAMES = int(os.getenv("FD_VIDEO_MAX_FRAMES", "16"))
+AUDIO_CLASSIFICATION_BANDS = {
+    "ai_likely_min": 0.7,
+    "real_likely_max": 0.3,
+}
 CLASSIFICATION_BANDS = {
     "ai_likely_min": 0.7,
     "real_likely_max": 0.3,
@@ -184,6 +199,11 @@ app.mount(
     "/jpeg_quality",
     StaticFiles(directory=JPEG_QUALITY_DIR),
     name="jpeg_quality",
+)
+app.mount(
+    "/audio_plots",
+    StaticFiles(directory=AUDIO_PLOTS_DIR),
+    name="audio_plots",
 )
 
 
@@ -303,6 +323,7 @@ async def auth_and_rate_limit(request: Request, call_next):
         "/video_frames/",
         "/noise/",
         "/jpeg_quality/",
+        "/audio_plots/",
     )
     if path in {"/health", "/openapi.json"} or path.startswith(public_prefixes):
         return await call_next(request)
@@ -329,6 +350,8 @@ def _max_bytes_for_ext(ext: str) -> int:
         return _mb_to_bytes(MAX_IMAGE_MB)
     if ext in VIDEO_EXTENSIONS:
         return _mb_to_bytes(MAX_VIDEO_MB)
+    if ext in AUDIO_EXTENSIONS:
+        return _mb_to_bytes(MAX_AUDIO_MB)
     return _mb_to_bytes(MAX_UPLOAD_MB)
 
 
@@ -441,6 +464,22 @@ def _delete_video_record(record: VideoAnalysisRecord, db: Session, commit: bool 
         record.thumbnail_path,
         record.frames_json,
         record.video_metadata,
+    ):
+        _collect_storage_paths(value, paths)
+    _cleanup_storage_paths(paths)
+    db.delete(record)
+    if commit:
+        db.commit()
+
+
+def _delete_audio_record(record: AudioAnalysisRecord, db: Session, commit: bool = True) -> None:
+    paths: set[Path] = set()
+    for value in (
+        record.saved_path,
+        record.waveform_path,
+        record.audio_metadata,
+        record.audio_features,
+        record.file_integrity,
     ):
         _collect_storage_paths(value, paths)
     _cleanup_storage_paths(paths)
@@ -1202,6 +1241,90 @@ def _build_video_report_pdf(record: VideoAnalysisRecord) -> bytes:
     return buffer.read()
 
 
+def _build_audio_report_pdf(record: AudioAnalysisRecord) -> bytes:
+    buffer = io.BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=A4)
+    width, height = A4
+    y = _start_report_page(
+        pdf,
+        width,
+        height,
+        "Firinne Dhigiteach - Audio Analysis Report",
+        f"Case #{record.id} | Generated: {_safe_text(record.created_at)}",
+    )
+
+    audio_metadata = record.audio_metadata if isinstance(record.audio_metadata, dict) else {}
+    audio_features = record.audio_features if isinstance(record.audio_features, dict) else {}
+    file_integrity = record.file_integrity if isinstance(record.file_integrity, dict) else {}
+    hashes_before = file_integrity.get("hashes_before") if isinstance(file_integrity.get("hashes_before"), dict) else {}
+    hashes_after = file_integrity.get("hashes_after") if isinstance(file_integrity.get("hashes_after"), dict) else {}
+    hashes_fallback = file_integrity.get("hashes") if isinstance(file_integrity.get("hashes"), dict) else {}
+
+    y = _draw_key_value_section(
+        pdf,
+        "Case Summary",
+        [
+            ("Record ID", _safe_text(record.id)),
+            ("Filename", _truncate_value(record.filename, 180)),
+            ("Created", _safe_text(record.created_at)),
+            ("Classification", _safe_text(record.classification)),
+            ("Forensic score", _safe_text(round(record.forensic_score or 0.0, 4))),
+            ("Analysis mode", _safe_text(audio_features.get("analysis_mode"))),
+        ],
+        y,
+        width,
+        height,
+    )
+
+    y = _draw_key_value_section(
+        pdf,
+        "Integrity and Traceability",
+        [
+            ("SHA-256 (before)", _truncate_value(hashes_before.get("sha256") or hashes_fallback.get("sha256"), 120)),
+            ("SHA-256 (after)", _truncate_value(hashes_after.get("sha256") or hashes_fallback.get("sha256"), 120)),
+            ("Hashes match", _safe_text(file_integrity.get("hashes_match"))),
+            ("Duration (sec)", _safe_text(audio_metadata.get("duration_seconds"))),
+            ("Sample rate (Hz)", _safe_text(audio_metadata.get("sample_rate_hz"))),
+            ("Channels", _safe_text(audio_metadata.get("channels"))),
+            ("Container parse", _safe_text(audio_metadata.get("parse_method"))),
+        ],
+        y,
+        width,
+        height,
+    )
+
+    y = _draw_key_value_section(
+        pdf,
+        "Audio Signal Findings",
+        [
+            ("RMS level", _safe_text(audio_features.get("rms_level"))),
+            ("Peak level", _safe_text(audio_features.get("peak_level"))),
+            ("Clipping ratio", _safe_text(audio_features.get("clipping_ratio"))),
+            ("Silence ratio", _safe_text(audio_features.get("silence_ratio"))),
+            ("Spectral centroid (Hz)", _safe_text(audio_features.get("spectral_centroid_hz"))),
+        ],
+        y,
+        width,
+        height,
+    )
+
+    findings = []
+    if isinstance(audio_features.get("findings"), list):
+        findings = [str(x) for x in audio_features.get("findings") or []]
+    elif isinstance(audio_metadata.get("notes"), list):
+        findings = [str(x) for x in audio_metadata.get("notes") or []]
+    y = _draw_bullets(pdf, "Audio Findings", findings, y, width, height, limit=12)
+
+    y = _ensure_page_space(pdf, y, 180, height)
+    y = _draw_section_header(pdf, "Waveform Preview", y, width)
+    y = _try_add_image(pdf, record.waveform_path, 40, y, 500, 150)
+
+    _draw_page_footer(pdf, width)
+    pdf.save()
+    buffer.seek(0)
+    return buffer.read()
+
+
 # ---------------------------
 # Basic Routes
 # ---------------------------
@@ -1436,6 +1559,90 @@ async def analyse_image(
     }
 
 
+@app.post("/analysis/audio", response_model=AudioAnalysisDetail)
+async def analyse_audio(
+    request: Request,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    content_type = (file.content_type or "").lower()
+    original_name = Path(file.filename or "").name
+    if not original_name:
+        raise HTTPException(400, "Missing filename.")
+
+    ext = Path(original_name).suffix.lower()
+    if ext not in AUDIO_EXTENSIONS and not content_type.startswith("audio/"):
+        raise HTTPException(400, "Please upload an audio file.")
+
+    saved_path = save_uploaded_file(file, max_bytes=_max_bytes_for_ext(ext))
+    hashes_before = file_hashes(saved_path)
+
+    waveform_path = AUDIO_PLOTS_DIR / f"{uuid.uuid4().hex}_waveform.png"
+    analysis = await asyncio.to_thread(analyse_audio_file, saved_path, waveform_path)
+    if analysis["features"].get("waveform_path") is None:
+        waveform_path = None
+
+    hashes_after = file_hashes(saved_path)
+    file_integrity = {
+        "hashes_before": hashes_before,
+        "hashes_after": hashes_after,
+        "hashes_match": hashes_before == hashes_after,
+        "hashes": hashes_before,
+    }
+
+    audio_metadata = dict(analysis["metadata"])
+    audio_metadata["hashes_before"] = hashes_before
+    audio_metadata["hashes_after"] = hashes_after
+    audio_metadata["hashes_match"] = hashes_before == hashes_after
+
+    audio_features = dict(analysis["features"])
+    audio_features["findings"] = analysis["findings"]
+
+    record = AudioAnalysisRecord(
+        filename=original_name,
+        saved_path=str(saved_path),
+        waveform_path=str(waveform_path) if waveform_path else None,
+        forensic_score=analysis["forensic_score"],
+        classification=analysis["classification"],
+        audio_metadata=audio_metadata,
+        audio_features=audio_features,
+        file_integrity=file_integrity,
+    )
+
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+
+    _log_audit(
+        action="analysis_audio_completed",
+        record_type="audio",
+        record_id=record.id,
+        filename=original_name,
+        details={
+            "classification": record.classification,
+            "forensic_score": record.forensic_score,
+            "pipeline_version": PIPELINE_VERSION,
+            "analysis_mode": audio_features.get("analysis_mode"),
+            "hashes_sha256": hashes_before.get("sha256"),
+            "toolchain": _toolchain_snapshot(),
+        },
+        request=request,
+    )
+
+    return {
+        "id": record.id,
+        "filename": record.filename,
+        "saved_path": record.saved_path,
+        "waveform_path": record.waveform_path,
+        "forensic_score": record.forensic_score,
+        "classification": record.classification,
+        "audio_metadata": record.audio_metadata,
+        "audio_features": record.audio_features,
+        "file_integrity": record.file_integrity,
+        "created_at": record.created_at,
+    }
+
+
 @app.post("/analysis/video", response_model=VideoAnalysisDetail)
 async def analyse_video(
     request: Request,
@@ -1648,6 +1855,7 @@ def get_settings():
         "limits": {
             "max_image_mb": MAX_IMAGE_MB,
             "max_video_mb": MAX_VIDEO_MB,
+            "max_audio_mb": MAX_AUDIO_MB,
             "max_upload_mb": MAX_UPLOAD_MB,
             "rate_limit_per_minute": RATE_LIMIT_PER_MINUTE,
             "retention_days": RETENTION_DAYS,
@@ -1658,6 +1866,7 @@ def get_settings():
             "fusion_weights": FUSION_WEIGHTS,
             "video_max_duration_seconds": VIDEO_MAX_DURATION_SECONDS,
             "video_sample_frames": VIDEO_SAMPLE_FRAMES,
+            "audio_classification_bands": AUDIO_CLASSIFICATION_BANDS,
             "scene_cut_threshold": 0.6,
             "scene_cut_stride": 10,
         },
@@ -1809,6 +2018,80 @@ def get_video_analysis(record_id: int, db: Session = Depends(get_db)):
     }
 
 
+@app.get("/analysis/audio", response_model=PaginatedAnalysisSummary)
+def list_audio_analysis(
+    page: int = 1,
+    limit: int = 20,
+    classification: str | None = None,
+    filename: str | None = None,
+    db: Session = Depends(get_db),
+):
+    if limit > 200:
+        limit = 200
+    if page < 1:
+        page = 1
+
+    query = db.query(AudioAnalysisRecord)
+    if classification:
+        query = query.filter(AudioAnalysisRecord.classification == classification)
+    if filename:
+        query = query.filter(AudioAnalysisRecord.filename.ilike(f"%{filename}%"))
+
+    total = query.count()
+    rows = (
+        query.order_by(AudioAnalysisRecord.created_at.desc())
+        .offset((page - 1) * limit)
+        .limit(limit)
+        .all()
+    )
+
+    data = [
+        {
+            "id": row.id,
+            "filename": row.filename,
+            "forensic_score": row.forensic_score,
+            "classification": row.classification,
+            "created_at": row.created_at,
+            "thumbnail_url": f"/audio_plots/{Path(row.waveform_path).name}"
+            if row.waveform_path
+            else "",
+            "media_type": "audio",
+        }
+        for row in rows
+    ]
+
+    return {
+        "data": data,
+        "total": total,
+        "page": page,
+        "limit": limit,
+        "total_pages": (total + limit - 1) // limit,
+    }
+
+
+@app.get("/analysis/audio/{record_id}", response_model=AudioAnalysisDetail)
+def get_audio_analysis(record_id: int, db: Session = Depends(get_db)):
+    record = (
+        db.query(AudioAnalysisRecord).filter(AudioAnalysisRecord.id == record_id).first()
+    )
+
+    if not record:
+        raise HTTPException(404, "Record not found")
+
+    return {
+        "id": record.id,
+        "filename": record.filename,
+        "saved_path": record.saved_path,
+        "waveform_path": record.waveform_path,
+        "forensic_score": record.forensic_score,
+        "classification": record.classification,
+        "audio_metadata": record.audio_metadata,
+        "audio_features": record.audio_features,
+        "file_integrity": record.file_integrity,
+        "created_at": record.created_at,
+    }
+
+
 @app.get("/analysis/{record_id}/report.pdf")
 def get_image_report(
     record_id: int,
@@ -1823,6 +2106,34 @@ def get_image_report(
     _log_audit(
         action="report_generated",
         record_type="image",
+        record_id=record.id,
+        filename=record.filename,
+        details={"format": "pdf"},
+        request=request,
+    )
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
+
+
+@app.get("/analysis/audio/{record_id}/report.pdf")
+def get_audio_report(
+    record_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    record = (
+        db.query(AudioAnalysisRecord).filter(AudioAnalysisRecord.id == record_id).first()
+    )
+    if not record:
+        raise HTTPException(404, "Record not found")
+    pdf_bytes = _build_audio_report_pdf(record)
+    filename = f"audio_analysis_{record_id}.pdf"
+    _log_audit(
+        action="report_generated",
+        record_type="audio",
         record_id=record.id,
         filename=record.filename,
         details={"format": "pdf"},
@@ -1883,6 +2194,36 @@ def delete_analysis(
     _log_audit(
         action="record_deleted",
         record_type="image",
+        record_id=record_id,
+        filename=record.filename,
+        details={"admin": True},
+        request=request,
+    )
+    return {"status": "deleted", "id": record_id}
+
+
+@app.delete("/analysis/audio/{record_id}")
+def delete_audio_analysis(
+    record_id: int,
+    request: Request,
+    admin_key: str = Header(None),
+    db: Session = Depends(get_db),
+):
+    if admin_key != ADMIN_KEY:
+        raise HTTPException(403, "Invalid admin key")
+
+    record = (
+        db.query(AudioAnalysisRecord).filter(AudioAnalysisRecord.id == record_id).first()
+    )
+
+    if not record:
+        raise HTTPException(404, "Record not found")
+
+    _delete_audio_record(record, db)
+
+    _log_audit(
+        action="record_deleted",
+        record_type="audio",
         record_id=record_id,
         filename=record.filename,
         details={"admin": True},
