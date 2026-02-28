@@ -266,6 +266,14 @@ backend/database/*.sqlite
 # Frontend build & deps
 frontend/node_modules/
 frontend/dist/
+frontend/.vite/
+frontend/.vite-temp/
+frontend/coverage/
+
+# Local training / experiment outputs
+.venv-train/
+artifacts/
+pytest-cache-files-*/
 
 # Documents
 !docs/
