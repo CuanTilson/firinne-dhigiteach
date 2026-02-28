@@ -9,7 +9,8 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".mkv"}
-ALLOWED_EXTENSIONS = IMAGE_EXTENSIONS | VIDEO_EXTENSIONS
+AUDIO_EXTENSIONS = {".wav", ".mp3", ".m4a", ".flac"}
+ALLOWED_EXTENSIONS = IMAGE_EXTENSIONS | VIDEO_EXTENSIONS | AUDIO_EXTENSIONS
 
 _CHUNK_SIZE = 1024 * 1024
 
