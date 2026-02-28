@@ -1,0 +1,65 @@
+{
+  "genimage_train": {
+    "count": 2800,
+    "by_label": {
+      "real": 1400,
+      "ai": 1400
+    },
+    "by_source": {
+      "genimage": 2800
+    },
+    "by_split": {
+      "train": 2800
+    }
+  },
+  "genimage_val": {
+    "count": 600,
+    "by_label": {
+      "real": 300,
+      "ai": 300
+    },
+    "by_source": {
+      "genimage": 600
+    },
+    "by_split": {
+      "val": 600
+    }
+  },
+  "genimage_test": {
+    "count": 600,
+    "by_label": {
+      "real": 300,
+      "ai": 300
+    },
+    "by_source": {
+      "genimage": 600
+    },
+    "by_split": {
+      "test": 600
+    }
+  },
+  "kaggle_external_eval": {
+    "count": 79950,
+    "by_label": {
+      "ai": 39975,
+      "real": 39975
+    },
+    "by_source": {
+      "kaggle": 79950
+    },
+    "by_split": {
+      "external_train": 79950
+    }
+  },
+  "config": {
+    "seed": 2026,
+    "train_ratio": 0.7,
+    "val_ratio": 0.15,
+    "test_ratio": 0.15,
+    "max_per_class": 2000,
+    "generators": [
+      "Midjourney",
+      "stable_diffusion_v_1_5"
+    ]
+  }
+}
