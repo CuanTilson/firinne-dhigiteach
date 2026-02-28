@@ -5,6 +5,7 @@ A legal-oriented prototype for assessing whether digital media is authentic, AI-
 The system currently supports:
 - image analysis with explainable forensic outputs
 - video analysis with sampled frame review
+- backend audio-analysis scaffolding for standalone audio
 - case history, audit log, settings, and print/report views
 - reproducible Model A training from CSV manifests
 
@@ -14,14 +15,15 @@ The project is being delivered in weekly stages for a final-year dissertation, w
 
 Implemented now:
 - FastAPI backend for image and video analysis
+- FastAPI backend audio-analysis scaffold and audio report endpoint
 - React frontend for upload, review, history, and reporting
 - forensic signals including GradCAM, ELA, metadata checks, C2PA, JPEG analysis, and noise residuals
 - Week 2 data pipeline for reproducible image-model training
 - Week 3 Model A baseline training scaffold and first baseline run
 
 Planned next:
-- Model B learned fusion using forensic features
-- audio analysis roadmap (standalone audio and audio extracted from video)
+- audio extraction from uploaded video
+- explicit decision-path presentation for rule-based vs learned-fusion outputs
 - broader evaluation and final report packaging
 
 ## Repository Layout
@@ -99,12 +101,15 @@ Start here for project docs:
 - `docs/README.md`
 
 Important supporting docs:
+- `docs/project-status.md` - current implementation and research status
 - `data/README.md` - dataset storage, manifest generation, validation workflow
 - `backend/models/training/README.md` - Model A training workflow
 - `docs/Week 1/week1-scope-freeze.md` - frozen project scope
 - `docs/Week 1/week1-evaluation-protocol.md` - evaluation protocol
 - `docs/Week 2/week2-summary.md` - data preparation completion summary
 - `docs/Week 3/week3-model-a-baseline.md` - first baseline training result
+- `docs/Week 3/week3-evaluation-summary.md` - consolidated Week 3 evaluation
+- `docs/Week 4/week4-audio-backend-scaffold.md` - Week 4 audio backend increment
 
 ## Notes
 
