@@ -72,6 +72,21 @@ class VideoAnalysisDetail(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class AudioAnalysisDetail(BaseModel):
+    id: int
+    filename: Optional[str]
+    saved_path: Optional[str]
+    waveform_path: Optional[str]
+    forensic_score: float
+    classification: str
+    audio_metadata: Optional[Any]
+    audio_features: Optional[Any]
+    file_integrity: Optional[Any]
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 class AuditLogEntry(BaseModel):
     id: int
     action: str
