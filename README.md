@@ -1,395 +1,113 @@
-﻿# Fírinne Dhigiteach - Deepfake & Digital Media Forensics
+﻿# Firinne Dhigiteach
 
-## Prototype System for Image + Video Authenticity Analysis
+A legal-oriented prototype for assessing whether digital media is authentic, AI-generated, or modified.
 
-This project is a forensic analysis pipeline for detecting AI-generated or edited media using a combination of:
+The system currently supports:
+- image analysis with explainable forensic outputs
+- video analysis with sampled frame review
+- case history, audit log, settings, and print/report views
+- reproducible Model A training from CSV manifests
 
-- CNN-based deepfake detection
-- GradCAM visual explainability
-- Metadata and EXIF forensics
-- JPEG structure and Q-table analysis
-- JPEG quality estimation + double-compression localisation
-- Error Level Analysis (ELA)
-- Noise residual analysis + noise variance heatmaps
-- Optional invisible watermark detection (if present)
-- C2PA provenance verification
-- A forensic fusion algorithm combining all signals
-- A React-based frontend for interactive visualisation
+The project is being delivered in weekly stages for a final-year dissertation, with traceability and reproducibility treated as first-class requirements.
 
----
+## Current Status
 
-## 1. Project Structure
+Implemented now:
+- FastAPI backend for image and video analysis
+- React frontend for upload, review, history, and reporting
+- forensic signals including GradCAM, ELA, metadata checks, C2PA, JPEG analysis, and noise residuals
+- Week 2 data pipeline for reproducible image-model training
+- Week 3 Model A baseline training scaffold and first baseline run
 
-```
-backend/
-  |-- analysis/
-  |-- models/
-  |-- explainability/
-  |-- database/
-  |-- storage/
-  |   |-- uploaded/
-  |   |-- ela/
-  |   |-- heatmaps/
-  |   |-- thumbnails/
-  |   |-- video_frames/
-  |   |-- noise/
-  |   `-- jpeg_quality/
-  |-- main.py
-  `-- ...
+Planned next:
+- Model B learned fusion using forensic features
+- audio analysis roadmap (standalone audio and audio extracted from video)
+- broader evaluation and final report packaging
 
-frontend/
-  `-- (Vite + React + Tailwind)
-vendor/
-  `-- CNNDetection/ (submodule)
+## Repository Layout
+
+```text
+backend/                 FastAPI app, forensic analysis, training scaffolds
+frontend/                React frontend
+data/                    manifests, data scripts, and data workflow docs
+artifacts/               local training outputs (not committed)
+docs/                    project documentation by topic and week
+vendor/CNNDetection/     third-party model dependency
 ```
 
----
+## Quick Start
 
-## 2. Requirements
-
-### Backend (Python)
-
-- Python 3.10+
-- pip + venv
-- PyTorch (CPU is fine for prototype)
-- FastAPI
-- SQLite (already included)
-
-### Frontend (Node)
-
-- Node.js 18+
-- npm or yarn
-
----
-
-## 3. Backend Setup (Python + FastAPI)
-
-### 3.1 Create and activate the virtual environment
-
-**macOS/Linux**
-
-```bash
-cd backend
-python3 -m venv venv
-source venv/bin/activate
-```
-
-**Windows**
+### Backend
 
 ```powershell
 cd backend
-python -m venv venv
-venv\Scripts\activate
+python -m venv .venv
+./.venv/Scripts/python.exe -m pip install -r requirements.txt
+cd ..
+./backend/.venv/Scripts/python.exe -m uvicorn backend.main:app --reload
 ```
 
----
+### Frontend
 
-### 3.2 Install backend dependencies
-
-```bash
-pip install -r requirements.txt
+```powershell
+cd frontend
+npm install
+npm run dev
 ```
 
-If your project has no `requirements.txt` yet, generate one:
+Frontend default URL:
+- `http://localhost:5173`
 
-```bash
-pip freeze > requirements.txt
-```
+Backend default URL:
+- `http://localhost:8000`
 
----
+## Configuration
 
-### 3.3 Ensure storage folders exist
+Backend configuration is driven by `backend/.env`.
+Key variables:
+- `FD_ADMIN_KEY`
+- `FD_API_KEY`
+- `FD_CORS_ORIGINS`
+- `FD_RATE_LIMIT_PER_MINUTE`
+- `FD_MAX_IMAGE_MB`
+- `FD_MAX_VIDEO_MB`
+- `FD_MAX_UPLOAD_MB`
+- `FD_RETENTION_DAYS`
+- `FD_RETENTION_INTERVAL_HOURS`
 
-These are automatically created by `main.py`, but you can check:
+Frontend configuration is driven by `frontend/.env`.
+Key variables:
+- `VITE_API_BASE_URL`
+- `VITE_API_KEY`
+- `VITE_ADMIN_KEY`
 
-```
-backend/storage/uploaded
-backend/storage/ela
-backend/storage/heatmaps
-backend/storage/thumbnails
-backend/storage/video_frames
-backend/storage/noise
-backend/storage/jpeg_quality
-```
+## Model Dependency
 
----
+The backend still depends on the CNNDetection vendor weights for the current forensic image pipeline.
+Expected path:
+- `vendor/CNNDetection/weights/blur_jpg_prob0.5.pth`
 
-### 3.4 Start the backend server
+If you clone the project fresh, initialize submodules first:
 
-Development mode with auto-reload:
-
-```bash
-uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
-```
-
-Backend docs live at:
-
-```
-http://localhost:8000/docs
-http://localhost:8000/redoc
-```
-
----
-
-## 4. CNNDetection Model Setup (Vendor Submodule)
-
-You included CNNDetection as a **git submodule** under `vendor/`.
-https://github.com/PeterWang512/CNNDetection
-
-### 4.1 Initialise submodules
-
-If you freshly cloned the repo:
-
-```bash
+```powershell
 git submodule update --init --recursive
 ```
 
-If needed, pull nested updates later:
-
-```bash
-git submodule update --recursive --remote
-```
-
----
-
-### 4.2 Download CNNDetection weights
-
-From project root:
-
-```bash
-cd vendor/CNNDetection/weights
-```
-
-Download the pretrained weights:
-
-```bash
-wget https://www.dropbox.com/s/2g2jagq2jn1fd0i/blur_jpg_prob0.5.pth?dl=0 -O blur_jpg_prob0.5.pth
-wget https://www.dropbox.com/s/h7tkpcgiwuftb6g/blur_jpg_prob0.1.pth?dl=0 -O blur_jpg_prob0.1.pth
-```
-
-Or if using PowerShell (Windows):
-
-```powershell
-Invoke-WebRequest "https://www.dropbox.com/s/2g2jagq2jn1fd0i/blur_jpg_prob0.5.pth?dl=0" -OutFile blur_jpg_prob0.5.pth
-Invoke-WebRequest "https://www.dropbox.com/s/h7tkpcgiwuftb6g/blur_jpg_prob0.1.pth?dl=0" -OutFile blur_jpg_prob0.1.pth
-```
-
----
-
-### 4.3 Backend Model Path
-
-Your backend loads:
-
-```python
-WEIGHTS = Path("vendor/CNNDetection/weights/blur_jpg_prob0.5.pth")
-```
-
-So ensure:
-
-```
-vendor/CNNDetection/weights/blur_jpg_prob0.5.pth
-```
-
-exists.
-
----
-
-## 5. Frontend Setup (React + Vite)
-
-### 5.1 Install dependencies
-
-```bash
-cd frontend
-npm install
-```
-
-Or:
-
-```bash
-yarn install
-```
-
----
-
-### 5.2 Start the dev server
-
-```bash
-npm run dev
-```
-
-Frontend runs on:
-
-```
-http://localhost:5173/
-```
-
----
-
-### 5.3 API configuration
-
-The frontend reads the backend URL from:
-
-```
-frontend/src/constants.ts
-```
-
-Default is `http://localhost:8000`. Set `VITE_API_BASE_URL` to override.
-
----
-
-## 6. Running the Full System
-
-### Backend (terminal 1)
-
-```bash
-cd backend
-source venv/bin/activate   # or venv\Scripts\activate on Windows
-uvicorn backend.main:app --reload
-```
-
-### Frontend (terminal 2)
-
-```bash
-cd frontend
-npm run dev
-```
-
-Then open:
-
-```
-http://localhost:5173/
-```
-
----
-
-## 7. Configuration
-
-### Backend
-
-- `FD_ADMIN_KEY` sets the admin key for delete operations (required unless `FD_ALLOW_INSECURE_ADMIN_KEY=1`).
-- `FD_ALLOW_INSECURE_ADMIN_KEY=1` allows the legacy default admin key (not recommended for online use).
-- `FD_API_KEY` enables an API key check via `x-api-key` header on all endpoints.
-- `FD_RATE_LIMIT_PER_MINUTE` rate limits requests per client IP (set `0` to disable).
-- `FD_MAX_IMAGE_MB`, `FD_MAX_VIDEO_MB`, `FD_MAX_UPLOAD_MB` set upload size limits.
-- `FD_RETENTION_DAYS` auto-deletes records and files older than N days (0 disables).
-- `FD_RETENTION_INTERVAL_HOURS` controls cleanup interval for retention tasks.
-- `FD_CORS_ORIGINS` sets allowed CORS origins. Use `*` to allow all or a comma-separated list.
-- Copy `backend/.env.example` to `backend/.env` for local dev.
-
-### Frontend
-
-- `VITE_API_BASE_URL` overrides the backend URL (defaults to `http://localhost:8000`).
-- `VITE_API_KEY` sets the API key header for backend requests.
-- `VITE_ADMIN_KEY` pre-fills the admin key used by delete actions.
-- Copy `frontend/.env.example` to `frontend/.env` for local dev.
-
----
-
-## 8. Features Implemented
-
-- CNN-based real-vs-AI classification
-- GradCAM heatmap generation
-- Full EXIF + metadata inspection
-- JPEG structure analysis (SOI/EOI markers, APP segments, double compression)
-- JPEG quantisation table anomaly scoring
-- JPEG quality estimation + double-compression heatmap
-- Noise residual analysis (variance + spectral flatness)
-- Noise variance heatmap
-- Optional invisible watermark decoding (if present)
-- Error Level Analysis (ELA) with preview heatmap
-- C2PA provenance extraction + AI-assertion detection
-- Forensic fusion scoring
-- SQLite database of past analyses
-- React dashboard display with switchable heatmaps
-- Thumbnail history view
-- Case inspector with metadata and C2PA tabs
-- Video analysis with scene-aware frame sampling
-- Video detail view with per-frame results
-- PDF report generation for image and video analyses
-
----
-
-## 9. Folder Overview
-
-### Backend
-
-```
-backend/main.py                  -> main FastAPI app
-backend/analysis/                -> forensic modules
-backend/models/                  -> CNN model loader
-backend/explainability/          -> GradCAM generator
-backend/database/                -> DB and ORM
-backend/storage/                 -> uploaded files + output heatmaps
-```
-
-### Frontend
-
-```
-frontend/src/
-  components/
-  pages/
-  services/api.ts
-  constants.ts
-  types.ts
-```
-
-### Vendor
-
-```
-vendor/CNNDetection/             -> third-party detection model
-```
-
----
-
-## 10. Video Notes
-
-- Max file size: 200MB
-- Max duration: 3 minutes
-- Sampling: 16 frames with scene-aware prioritisation around cuts
-
----
-
-## 11. Useful Commands
-
-### Regenerate DB (fresh start)
-
-```bash
-rm backend/database/forensics.db
-```
-
-### Test backend manually
-
-```bash
-curl -X POST -F "file=@test.jpg" http://localhost:8000/analysis/image
-```
-
-### Test video analysis manually
-
-```bash
-curl -X POST -F "file=@test.mp4" http://localhost:8000/analysis/video
-```
-
-### Start async video analysis (returns job id)
-
-```bash
-curl -X POST -F "file=@test.mp4" http://localhost:8000/analysis/video/async
-```
-
-### Check job status
-
-```bash
-curl http://localhost:8000/jobs/{job_id}
-```
-
-### Download a PDF report
-
-```bash
-curl http://localhost:8000/analysis/{id}/report.pdf -o report.pdf
-curl http://localhost:8000/analysis/video/{id}/report.pdf -o video_report.pdf
-```
-
-### Check submodules
-
-```bash
-git submodule status
-```
+## Documentation Map
+
+Start here for project docs:
+- `docs/README.md`
+
+Important supporting docs:
+- `data/README.md` - dataset storage, manifest generation, validation workflow
+- `backend/models/training/README.md` - Model A training workflow
+- `docs/Week 1/week1-scope-freeze.md` - frozen project scope
+- `docs/Week 1/week1-evaluation-protocol.md` - evaluation protocol
+- `docs/Week 2/week2-summary.md` - data preparation completion summary
+- `docs/Week 3/week3-model-a-baseline.md` - first baseline training result
+
+## Notes
+
+- Raw datasets should stay outside the repository.
+- Training artifacts should be written to `artifacts/` and not committed.
+- The current baseline shows strong in-domain performance and weak external generalization, which is an important project finding rather than a failure.
