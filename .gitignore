@@ -220,6 +220,12 @@ Thumbs.db
 # Data / models
 data/*
 !data/.gitkeep
+!data/manifests/
+!data/manifests/*.csv
+!data/manifests/*.json
+!data/scripts/
+!data/scripts/*.py
+!data/README.md
 *.pth
 *.pt
 *.h5
@@ -262,4 +268,5 @@ frontend/node_modules/
 frontend/dist/
 
 # Documents
-docs
+!docs/
+!docs/**/*
