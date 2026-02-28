@@ -55,6 +55,25 @@ class VideoAnalysisRecord(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
+class AudioAnalysisRecord(Base):
+    __tablename__ = "audio_analysis_records"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    filename = Column(String)
+    saved_path = Column(String)
+    waveform_path = Column(String)
+
+    forensic_score = Column(Float)
+    classification = Column(String)
+
+    audio_metadata = Column(JSON)
+    audio_features = Column(JSON)
+    file_integrity = Column(JSON)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
 class AuditLog(Base):
     __tablename__ = "audit_logs"
 
