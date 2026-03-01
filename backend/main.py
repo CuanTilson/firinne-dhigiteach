@@ -19,7 +19,7 @@ from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
 
 from sqlalchemy.orm import Session
-from sqlalchemy import select, literal, union_all, func
+from sqlalchemy import select, literal, union_all, func, text
 from pathlib import Path
 import io
 import json
@@ -44,6 +44,7 @@ from backend.database.models import (
     VideoAnalysisRecord,
     AudioAnalysisRecord,
     AuditLog,
+    AppSetting,
 )
 from backend.database.schemas import (
     AnalysisDetail,
@@ -52,6 +53,7 @@ from backend.database.schemas import (
     AudioAnalysisDetail,
     PaginatedAuditLog,
     SettingsSnapshot,
+    SettingsUpdateRequest,
 )
 
 # Upload handling
@@ -84,10 +86,15 @@ from backend.analysis.forensics import (
 from backend.analysis.c2pa_analyser import analyse_c2pa
 from backend.analysis.forensic_fusion import fuse_forensic_scores
 from backend.analysis.video import sample_video_frames, get_video_duration_seconds
-from backend.analysis.audio import analyse_audio_file
+from backend.analysis.audio import (
+    analyse_audio_file,
+    extract_audio_from_video,
+    resolve_ffmpeg_path,
+)
 
 # ML model + explainability
 from backend.models.cnndetect_native import CNNDetectionModel
+from backend.models.model_a_native import ModelADetector
 from backend.explainability.gradcam import GradCAM
 
 
@@ -109,6 +116,7 @@ VIDEO_FRAMES_DIR = STORAGE_DIR / "video_frames"
 NOISE_DIR = STORAGE_DIR / "noise"
 JPEG_QUALITY_DIR = STORAGE_DIR / "jpeg_quality"
 AUDIO_PLOTS_DIR = STORAGE_DIR / "audio_plots"
+AUDIO_EXTRACT_DIR = STORAGE_DIR / "audio_extracted"
 
 ELA_DIR.mkdir(parents=True, exist_ok=True)
 HEATMAPS_DIR.mkdir(parents=True, exist_ok=True)
@@ -117,6 +125,7 @@ VIDEO_FRAMES_DIR.mkdir(parents=True, exist_ok=True)
 NOISE_DIR.mkdir(parents=True, exist_ok=True)
 JPEG_QUALITY_DIR.mkdir(parents=True, exist_ok=True)
 AUDIO_PLOTS_DIR.mkdir(parents=True, exist_ok=True)
+AUDIO_EXTRACT_DIR.mkdir(parents=True, exist_ok=True)
 
 ADMIN_KEY = os.getenv("FD_ADMIN_KEY")
 ALLOW_INSECURE_ADMIN_KEY = os.getenv("FD_ALLOW_INSECURE_ADMIN_KEY") == "1"
@@ -146,8 +155,22 @@ RETENTION_INTERVAL_HOURS = int(os.getenv("FD_RETENTION_INTERVAL_HOURS", "24"))
 PIPELINE_VERSION = os.getenv("FD_PIPELINE_VERSION", "dev")
 MODEL_VERSION = os.getenv("FD_MODEL_VERSION", "cnn-blur-jpg-0.5")
 DATASET_VERSION = os.getenv("FD_DATASET_VERSION", "unknown")
+IMAGE_DETECTOR = os.getenv("FD_IMAGE_DETECTOR", "cnndetection")
+MODEL_A_WEIGHTS = Path(
+    os.getenv(
+        "FD_MODEL_A_WEIGHTS",
+        str(PROJECT_ROOT / "artifacts" / "model_a_baseline_gpu" / "model_a_best.pt"),
+    )
+)
+MODEL_A_RUN_MANIFEST = Path(
+    os.getenv(
+        "FD_MODEL_A_RUN_MANIFEST",
+        str(PROJECT_ROOT / "artifacts" / "model_a_baseline_gpu" / "run_manifest.json"),
+    )
+)
 VIDEO_MAX_DURATION_SECONDS = int(os.getenv("FD_MAX_VIDEO_SECONDS", "180"))
 VIDEO_SAMPLE_FRAMES = int(os.getenv("FD_VIDEO_MAX_FRAMES", "16"))
+FFMPEG_PATH = os.getenv("FD_FFMPEG_PATH", "").strip() or None
 AUDIO_CLASSIFICATION_BANDS = {
     "ai_likely_min": 0.7,
     "real_likely_max": 0.3,
@@ -210,6 +233,20 @@ app.mount(
 # Create database tables
 Base.metadata.create_all(bind=engine)
 
+
+def _ensure_sqlite_column(table_name: str, column_name: str, column_sql: str) -> None:
+    with engine.begin() as conn:
+        columns = conn.execute(text(f"PRAGMA table_info({table_name})")).fetchall()
+        existing = {row[1] for row in columns}
+        if column_name not in existing:
+            conn.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_sql}"))
+
+
+_ensure_sqlite_column("video_analysis_records", "audio_analysis", "JSON")
+_ensure_sqlite_column("analysis_records", "applied_settings", "JSON")
+_ensure_sqlite_column("video_analysis_records", "applied_settings", "JSON")
+_ensure_sqlite_column("audio_analysis_records", "applied_settings", "JSON")
+
 # Load ML model once
 if not WEIGHTS.is_file():
     raise RuntimeError(
@@ -220,6 +257,20 @@ try:
 except Exception:
     MODEL_WEIGHTS_HASHES = {"sha256": "unknown", "md5": "unknown"}
 cnndetector = CNNDetectionModel(weights_path=WEIGHTS)
+model_a_detector = (
+    ModelADetector(MODEL_A_WEIGHTS, MODEL_A_RUN_MANIFEST)
+    if MODEL_A_WEIGHTS.is_file()
+    else None
+)
+MODEL_A_METADATA = (
+    model_a_detector.get_metadata()
+    if model_a_detector is not None
+    else {
+        "detector": "model_a",
+        "display_name": "Model A",
+        "weights_sha256": "missing",
+    }
+)
 
 
 # ---------------------------
@@ -252,6 +303,7 @@ def _pkg_version(name: str) -> str:
 
 
 def _toolchain_snapshot() -> dict:
+    resolved_ffmpeg = resolve_ffmpeg_path(FFMPEG_PATH)
     return {
         "python": sys.version.split()[0],
         "fastapi": _pkg_version("fastapi"),
@@ -260,7 +312,222 @@ def _toolchain_snapshot() -> dict:
         "opencv": _pkg_version("opencv-python"),
         "pillow": _pkg_version("Pillow"),
         "reportlab": _pkg_version("reportlab"),
+        "ffmpeg_available": bool(resolved_ffmpeg),
+        "ffmpeg_resolved_path": resolved_ffmpeg or "",
+        "ffmpeg_configured_path": FFMPEG_PATH or "",
+        "cnndetection_available": True,
+        "model_a_available": model_a_detector is not None,
     }
+
+
+def _get_detector_registry() -> dict[str, dict]:
+    registry = {
+        "cnndetection": {
+            "name": "cnndetection",
+            "display_name": "CNNDetection",
+            "available": True,
+            "model_version": MODEL_VERSION,
+            "dataset_version": DATASET_VERSION,
+            "weights": MODEL_WEIGHTS_HASHES,
+            "detector": cnndetector,
+        },
+        "model_a": {
+            "name": "model_a",
+            "display_name": "Model A",
+            "available": model_a_detector is not None,
+            "model_version": "model-a-resnet18",
+            "dataset_version": "genimage-curated-week3",
+            "weights": {
+                "sha256": MODEL_A_METADATA.get("weights_sha256", "missing"),
+                "md5": "n/a",
+            },
+            "detector": model_a_detector,
+        },
+    }
+    return registry
+
+
+def _resolve_image_detector(detector_name: str | None = None) -> dict:
+    registry = _get_detector_registry()
+    selected = (detector_name or IMAGE_DETECTOR or "cnndetection").strip().lower()
+    candidate = registry.get(selected)
+    if candidate and candidate["available"]:
+        return candidate
+    return registry["cnndetection"]
+
+
+def _default_settings_snapshot() -> dict:
+    detector_info = _resolve_image_detector()
+    registry = _get_detector_registry()
+    return {
+        "pipeline": {
+            "pipeline_version": PIPELINE_VERSION,
+            "model_version": detector_info["model_version"],
+            "dataset_version": detector_info["dataset_version"],
+            "weights": detector_info["weights"],
+            "image_detector": detector_info["name"],
+            "available_image_detectors": {
+                name: {
+                    "display_name": item["display_name"],
+                    "available": item["available"],
+                    "model_version": item["model_version"],
+                }
+                for name, item in registry.items()
+            },
+        },
+        "limits": {
+            "max_image_mb": MAX_IMAGE_MB,
+            "max_video_mb": MAX_VIDEO_MB,
+            "max_audio_mb": MAX_AUDIO_MB,
+            "max_upload_mb": MAX_UPLOAD_MB,
+            "rate_limit_per_minute": RATE_LIMIT_PER_MINUTE,
+            "retention_days": RETENTION_DAYS,
+            "retention_interval_hours": RETENTION_INTERVAL_HOURS,
+        },
+        "thresholds": {
+            "classification_bands": dict(CLASSIFICATION_BANDS),
+            "fusion_weights": dict(FUSION_WEIGHTS),
+            "video_max_duration_seconds": VIDEO_MAX_DURATION_SECONDS,
+            "video_sample_frames": VIDEO_SAMPLE_FRAMES,
+            "audio_classification_bands": dict(AUDIO_CLASSIFICATION_BANDS),
+            "scene_cut_threshold": 0.6,
+            "scene_cut_stride": 10,
+        },
+        "paths": {
+            "ffmpeg_path": FFMPEG_PATH or "",
+        },
+        "toolchain": _toolchain_snapshot(),
+    }
+
+
+def _merge_settings(base: dict, overrides: dict | None) -> dict:
+    merged = json.loads(json.dumps(base))
+    if not overrides:
+        return merged
+    for key, value in overrides.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _merge_settings(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def _get_runtime_overrides(db: Session | None) -> dict:
+    if db is None:
+        return {}
+    row = db.query(AppSetting).filter(AppSetting.key == "runtime").first()
+    if not row or not isinstance(row.value, dict):
+        return {}
+    return row.value
+
+
+def _get_settings_snapshot(db: Session | None = None) -> dict:
+    snapshot = _merge_settings(_default_settings_snapshot(), _get_runtime_overrides(db))
+    configured_ffmpeg = (
+        snapshot.get("paths", {}).get("ffmpeg_path")
+        if isinstance(snapshot.get("paths"), dict)
+        else None
+    )
+    resolved_ffmpeg = resolve_ffmpeg_path(configured_ffmpeg)
+    snapshot["toolchain"] = {
+        **snapshot.get("toolchain", {}),
+        "ffmpeg_available": bool(resolved_ffmpeg),
+        "ffmpeg_resolved_path": resolved_ffmpeg or "",
+        "ffmpeg_configured_path": configured_ffmpeg or "",
+    }
+    return snapshot
+
+
+def _analysis_runtime_settings(db: Session | None = None) -> dict:
+    snapshot = _get_settings_snapshot(db)
+    thresholds = snapshot.get("thresholds", {})
+    paths = snapshot.get("paths", {})
+    return {
+        "image_detector": snapshot.get("pipeline", {}).get("image_detector", IMAGE_DETECTOR),
+        "classification_bands": thresholds.get("classification_bands", CLASSIFICATION_BANDS),
+        "audio_classification_bands": thresholds.get(
+            "audio_classification_bands", AUDIO_CLASSIFICATION_BANDS
+        ),
+        "fusion_weights": thresholds.get("fusion_weights", FUSION_WEIGHTS),
+        "video_max_duration_seconds": int(
+            thresholds.get("video_max_duration_seconds", VIDEO_MAX_DURATION_SECONDS)
+        ),
+        "video_sample_frames": int(thresholds.get("video_sample_frames", VIDEO_SAMPLE_FRAMES)),
+        "ffmpeg_path": paths.get("ffmpeg_path") or None,
+    }
+
+
+def _validate_settings_update(payload: SettingsUpdateRequest) -> dict:
+    cleaned: dict = {}
+
+    if payload.pipeline:
+        pipeline: dict = {}
+        image_detector = payload.pipeline.get("image_detector")
+        if image_detector is not None:
+            selected = str(image_detector).strip().lower()
+            registry = _get_detector_registry()
+            if selected not in registry:
+                raise HTTPException(400, "Invalid image detector selection.")
+            if not registry[selected]["available"]:
+                raise HTTPException(400, "Selected image detector is unavailable.")
+            pipeline["image_detector"] = selected
+        if pipeline:
+            cleaned["pipeline"] = pipeline
+
+    if payload.thresholds:
+        thresholds: dict = {}
+        bands = payload.thresholds.get("classification_bands")
+        if isinstance(bands, dict):
+            ai_min = float(bands.get("ai_likely_min", CLASSIFICATION_BANDS["ai_likely_min"]))
+            real_max = float(
+                bands.get("real_likely_max", CLASSIFICATION_BANDS["real_likely_max"])
+            )
+            if not (0 <= real_max <= 1 and 0 <= ai_min <= 1 and real_max <= ai_min):
+                raise HTTPException(400, "Invalid image classification bands.")
+            thresholds["classification_bands"] = {
+                "ai_likely_min": ai_min,
+                "real_likely_max": real_max,
+            }
+
+        audio_bands = payload.thresholds.get("audio_classification_bands")
+        if isinstance(audio_bands, dict):
+            ai_min = float(
+                audio_bands.get("ai_likely_min", AUDIO_CLASSIFICATION_BANDS["ai_likely_min"])
+            )
+            real_max = float(
+                audio_bands.get("real_likely_max", AUDIO_CLASSIFICATION_BANDS["real_likely_max"])
+            )
+            if not (0 <= real_max <= 1 and 0 <= ai_min <= 1 and real_max <= ai_min):
+                raise HTTPException(400, "Invalid audio classification bands.")
+            thresholds["audio_classification_bands"] = {
+                "ai_likely_min": ai_min,
+                "real_likely_max": real_max,
+            }
+
+        if "video_max_duration_seconds" in payload.thresholds:
+            duration = int(payload.thresholds["video_max_duration_seconds"])
+            if duration <= 0:
+                raise HTTPException(400, "Video max duration must be positive.")
+            thresholds["video_max_duration_seconds"] = duration
+
+        if "video_sample_frames" in payload.thresholds:
+            frames = int(payload.thresholds["video_sample_frames"])
+            if frames <= 0:
+                raise HTTPException(400, "Video sample frames must be positive.")
+            thresholds["video_sample_frames"] = frames
+
+        if thresholds:
+            cleaned["thresholds"] = thresholds
+
+    if payload.paths:
+        paths: dict = {}
+        if "ffmpeg_path" in payload.paths:
+            ffmpeg_path = str(payload.paths.get("ffmpeg_path") or "").strip()
+            paths["ffmpeg_path"] = ffmpeg_path
+        if paths:
+            cleaned["paths"] = paths
+
+    return cleaned
 
 
 def _log_audit(
@@ -308,6 +575,17 @@ def _rate_limit_allowed(client_id: str) -> bool:
         return False
     bucket.append(now)
     return True
+
+
+def _validate_admin(request: Request, admin_key: str | None) -> None:
+    if admin_key != ADMIN_KEY:
+        _log_audit(
+            action="admin_action_rejected",
+            record_type="settings",
+            details={"reason": "invalid_admin_key"},
+            request=request,
+        )
+        raise HTTPException(403, "Invalid admin key")
 
 
 @app.middleware("http")
@@ -464,6 +742,7 @@ def _delete_video_record(record: VideoAnalysisRecord, db: Session, commit: bool 
         record.thumbnail_path,
         record.frames_json,
         record.video_metadata,
+        record.audio_analysis,
     ):
         _collect_storage_paths(value, paths)
     _cleanup_storage_paths(paths)
@@ -488,11 +767,14 @@ def _delete_audio_record(record: AudioAnalysisRecord, db: Session, commit: bool 
         db.commit()
 
 
-def run_full_analysis(filepath: Path) -> dict:
+def run_full_analysis(filepath: Path, runtime_settings: dict | None = None) -> dict:
+    runtime_settings = runtime_settings or _analysis_runtime_settings()
     file_integrity = analyse_file_integrity(filepath)
     hashes_before = file_integrity.get("hashes") or file_hashes(filepath)
 
-    ml = cnndetector.predict(filepath)
+    detector_info = _resolve_image_detector(runtime_settings.get("image_detector"))
+    detector = detector_info["detector"]
+    ml = detector.predict(filepath)
     ml_prob = ml["probability"]
 
     metadata = extract_image_metadata(filepath)
@@ -566,11 +848,35 @@ def run_full_analysis(filepath: Path) -> dict:
         noise_info["noise_anomaly_score"],
         qtinfo["combined_anomaly_score"],
         sd_watermark_score,
+        weights=runtime_settings.get("fusion_weights"),
+        classification_bands=runtime_settings.get("classification_bands"),
     )
+    fused["provenance"] = {
+        "image_detector": detector_info["name"],
+        "image_detector_display_name": detector_info["display_name"],
+        "model_version": detector_info["model_version"],
+        "dataset_version": detector_info["dataset_version"],
+        "weights_sha256": detector_info["weights"].get("sha256"),
+        "fusion_mode": "rule_based_forensic_fusion",
+        "fusion_weights": runtime_settings.get("fusion_weights"),
+        "classification_bands": runtime_settings.get("classification_bands"),
+    }
+    fused["decision_path"] = {
+        "production_path": True,
+        "decision_engine": "rule_based_forensic_fusion",
+        "learned_fusion_applied": False,
+        "model_b_status": "offline_evaluation_only",
+        "image_detector_role": "runtime_selectable_comparison_detector",
+    }
 
     heatmap_path = HEATMAPS_DIR / f"{uuid.uuid4().hex}_gradcam.png"
-    cam = GradCAM(cnndetector.get_model(), cnndetector.get_target_layer())
-    cam.generate(ml["tensor"], filepath, heatmap_path)
+    cam = GradCAM(detector.get_model(), detector.get_target_layer())
+    cam.generate(
+        ml["tensor"],
+        filepath,
+        heatmap_path,
+        target_index=ml.get("gradcam_target_index"),
+    )
 
     hashes_after = file_hashes(filepath)
     file_integrity["hashes_before"] = hashes_before
@@ -596,10 +902,22 @@ def run_full_analysis(filepath: Path) -> dict:
         "fused": fused,
         "heatmap_path": heatmap_path,
         "camera_consistency": camera_consistency,
+        "detector_info": {
+            "name": detector_info["name"],
+            "display_name": detector_info["display_name"],
+            "model_version": detector_info["model_version"],
+            "dataset_version": detector_info["dataset_version"],
+            "weights": detector_info["weights"],
+        },
     }
 
 
-def run_video_analysis(video_path: Path, max_frames: int = 16) -> dict:
+def run_video_analysis(
+    video_path: Path,
+    max_frames: int = 16,
+    runtime_settings: dict | None = None,
+) -> dict:
+    runtime_settings = runtime_settings or _analysis_runtime_settings()
     frames_dir = VIDEO_FRAMES_DIR / uuid.uuid4().hex
     frames = sample_video_frames(video_path, max_frames=max_frames, output_dir=frames_dir)
     if not frames:
@@ -610,7 +928,7 @@ def run_video_analysis(video_path: Path, max_frames: int = 16) -> dict:
     c2pa_flagged = False
 
     for frame in frames:
-        analysis = run_full_analysis(frame["frame_path"])
+        analysis = run_full_analysis(frame["frame_path"], runtime_settings=runtime_settings)
         frame_result = {
             "frame_index": frame["frame_index"],
             "timestamp_sec": frame["timestamp_sec"],
@@ -620,6 +938,7 @@ def run_video_analysis(video_path: Path, max_frames: int = 16) -> dict:
             "ml_prediction": {
                 "probability": analysis["ml_prob"],
                 "label": analysis["ml"]["label"],
+                "detector": analysis["detector_info"],
             },
             "metadata_anomalies": analysis["anomaly"],
             "exif_forensics": analysis["exif_result"],
@@ -645,6 +964,7 @@ def run_video_analysis(video_path: Path, max_frames: int = 16) -> dict:
             "gradcam_heatmap": str(analysis["heatmap_path"]),
             "ela_heatmap": analysis["ela_info"]["ela_image_path"],
             "raw_metadata": analysis["metadata"],
+            "detector_metadata": analysis["detector_info"],
         }
         frame_results.append(frame_result)
         scores.append(analysis["fused"]["final_score"])
@@ -654,18 +974,78 @@ def run_video_analysis(video_path: Path, max_frames: int = 16) -> dict:
     avg_score = float(sum(scores) / len(scores)) if scores else 0.0
     if c2pa_flagged:
         classification = "ai_generated_c2pa_flagged"
-    elif avg_score > 0.7:
+    elif avg_score >= float(runtime_settings["classification_bands"]["ai_likely_min"]):
         classification = "likely_ai_generated"
-    elif avg_score < 0.3:
+    elif avg_score <= float(runtime_settings["classification_bands"]["real_likely_max"]):
         classification = "likely_real"
     else:
         classification = "uncertain"
+
+    audio_analysis = {
+        "available": False,
+        "classification": None,
+        "forensic_score": None,
+        "audio_metadata": None,
+        "audio_features": None,
+        "file_integrity": None,
+        "waveform_path": None,
+        "saved_path": None,
+        "error": None,
+    }
+    extracted_audio_path = AUDIO_EXTRACT_DIR / f"{uuid.uuid4().hex}.wav"
+    waveform_path = AUDIO_PLOTS_DIR / f"{uuid.uuid4().hex}_video_audio_waveform.png"
+    extraction = extract_audio_from_video(
+        video_path,
+        extracted_audio_path,
+        configured_ffmpeg_path=runtime_settings.get("ffmpeg_path"),
+    )
+    if extraction["ok"]:
+        hashes_before = file_hashes(extracted_audio_path)
+        audio_result = analyse_audio_file(extracted_audio_path, waveform_path)
+        hashes_after = file_hashes(extracted_audio_path)
+        audio_bands = runtime_settings.get("audio_classification_bands", AUDIO_CLASSIFICATION_BANDS)
+        audio_score = float(audio_result["forensic_score"])
+        if audio_score >= float(audio_bands["ai_likely_min"]):
+            audio_classification = "likely_ai_generated"
+        elif audio_score <= float(audio_bands["real_likely_max"]):
+            audio_classification = "likely_real"
+        else:
+            audio_classification = "uncertain"
+        audio_analysis = {
+            "available": True,
+            "classification": audio_classification,
+            "forensic_score": audio_score,
+            "audio_metadata": {
+                **audio_result["metadata"],
+                "hashes_before": hashes_before,
+                "hashes_after": hashes_after,
+                "hashes_match": hashes_before == hashes_after,
+            },
+            "audio_features": {
+                **audio_result["features"],
+                "findings": audio_result["findings"],
+            },
+            "file_integrity": {
+                "hashes_before": hashes_before,
+                "hashes_after": hashes_after,
+                "hashes_match": hashes_before == hashes_after,
+                "hashes": hashes_before,
+            },
+            "waveform_path": audio_result["features"].get("waveform_path"),
+            "saved_path": str(extracted_audio_path),
+            "error": None,
+        }
+    else:
+        extracted_audio_path.unlink(missing_ok=True)
+        waveform_path.unlink(missing_ok=True)
+        audio_analysis["error"] = extraction["error"]
 
     return {
         "frames": frame_results,
         "frame_count": len(frame_results),
         "forensic_score": avg_score,
         "classification": classification,
+        "audio_analysis": audio_analysis,
     }
 
 
@@ -684,8 +1064,17 @@ async def _run_video_job(job_id: str, saved_path: Path, original_name: str) -> N
     await _set_job(job_id, status="running", started_at=datetime.utcnow().isoformat())
     try:
         hashes_before = file_hashes(saved_path)
+        db = SessionLocal()
+        try:
+            settings_snapshot = _get_settings_snapshot(db)
+            runtime_settings = _analysis_runtime_settings(db)
+        finally:
+            db.close()
         analysis = await asyncio.to_thread(
-            run_video_analysis, saved_path, max_frames=VIDEO_SAMPLE_FRAMES
+            run_video_analysis,
+            saved_path,
+            max_frames=runtime_settings["video_sample_frames"],
+            runtime_settings=runtime_settings,
         )
         video_metadata = extract_video_metadata(saved_path)
 
@@ -712,6 +1101,8 @@ async def _run_video_job(job_id: str, saved_path: Path, original_name: str) -> N
                 frame_count=analysis["frame_count"],
                 frames_json=analysis["frames"],
                 video_metadata=video_metadata,
+                audio_analysis=analysis.get("audio_analysis"),
+                applied_settings=settings_snapshot,
             )
             db.add(record)
             db.commit()
@@ -729,6 +1120,8 @@ async def _run_video_job(job_id: str, saved_path: Path, original_name: str) -> N
             "frame_count": record.frame_count,
             "frames": record.frames_json,
             "video_metadata": record.video_metadata,
+            "audio_analysis": record.audio_analysis,
+            "applied_settings": record.applied_settings,
             "created_at": record.created_at,
         }
 
@@ -751,6 +1144,7 @@ async def _run_video_job(job_id: str, saved_path: Path, original_name: str) -> N
                 "model_version": MODEL_VERSION,
                 "weights_sha256": MODEL_WEIGHTS_HASHES.get("sha256"),
                 "hashes_sha256": video_metadata.get("hashes", {}).get("sha256"),
+                "settings_snapshot": settings_snapshot,
                 "toolchain": _toolchain_snapshot(),
             },
         )
@@ -995,6 +1389,139 @@ def _sanitize_metadata_for_report(value):
     return value
 
 
+def _settings_summary_rows(settings_payload) -> list[tuple[str, str]]:
+    if not isinstance(settings_payload, dict):
+        return [("Settings snapshot", "Unavailable")]
+    pipeline = settings_payload.get("pipeline") if isinstance(settings_payload.get("pipeline"), dict) else {}
+    thresholds = settings_payload.get("thresholds") if isinstance(settings_payload.get("thresholds"), dict) else {}
+    paths = settings_payload.get("paths") if isinstance(settings_payload.get("paths"), dict) else {}
+    image_bands = thresholds.get("classification_bands") if isinstance(thresholds.get("classification_bands"), dict) else {}
+    audio_bands = thresholds.get("audio_classification_bands") if isinstance(thresholds.get("audio_classification_bands"), dict) else {}
+    return [
+        ("Pipeline version", _safe_text(pipeline.get("pipeline_version"))),
+        ("Image detector", _safe_text(pipeline.get("image_detector"))),
+        ("Model version", _safe_text(pipeline.get("model_version"))),
+        ("Dataset version", _safe_text(pipeline.get("dataset_version"))),
+        ("Image AI threshold", _safe_text(image_bands.get("ai_likely_min"))),
+        ("Image real threshold", _safe_text(image_bands.get("real_likely_max"))),
+        ("Audio AI threshold", _safe_text(audio_bands.get("ai_likely_min"))),
+        ("Audio real threshold", _safe_text(audio_bands.get("real_likely_max"))),
+        ("Video sample frames", _safe_text(thresholds.get("video_sample_frames"))),
+        ("FFmpeg path", _truncate_value(paths.get("ffmpeg_path"), 120)),
+    ]
+
+
+def _detector_metadata_from_name(detector_name: str | None) -> dict[str, Any]:
+    registry_entry = _get_detector_registry().get(detector_name or "")
+    if registry_entry:
+        return {
+            "name": registry_entry.get("name"),
+            "display_name": registry_entry.get("display_name"),
+            "model_version": registry_entry.get("model_version"),
+            "dataset_version": registry_entry.get("dataset_version"),
+            "weights": registry_entry.get("weights"),
+        }
+    if detector_name == "model_a":
+        return {
+            "name": "model_a",
+            "display_name": "Model A",
+            "model_version": "model-a-resnet18",
+            "dataset_version": "genimage-curated-week3",
+            "weights": {
+                "sha256": MODEL_A_METADATA.get("weights_sha256", "unknown"),
+                "md5": MODEL_A_METADATA.get("weights_md5", "unknown"),
+            },
+        }
+    if detector_name == "cnndetection":
+        return {
+            "name": "cnndetection",
+            "display_name": "CNNDetection",
+            "model_version": MODEL_VERSION,
+            "dataset_version": DATASET_VERSION,
+            "weights": MODEL_WEIGHTS_HASHES,
+        }
+    return {}
+
+
+def _normalized_image_ml_prediction(record: AnalysisRecord) -> dict[str, Any]:
+    ml_prediction = dict(record.ml_prediction) if isinstance(record.ml_prediction, dict) else {}
+    detector = dict(ml_prediction.get("detector")) if isinstance(ml_prediction.get("detector"), dict) else {}
+    applied_settings = record.applied_settings if isinstance(record.applied_settings, dict) else {}
+    pipeline_settings = (
+        applied_settings.get("pipeline") if isinstance(applied_settings.get("pipeline"), dict) else {}
+    )
+    inferred_detector = _detector_metadata_from_name(pipeline_settings.get("image_detector"))
+    if inferred_detector:
+        merged_detector = dict(inferred_detector)
+        merged_detector.update({k: v for k, v in detector.items() if v not in (None, "", {})})
+        ml_prediction["detector"] = merged_detector
+    elif detector:
+        ml_prediction["detector"] = detector
+    return ml_prediction
+
+
+def _normalized_image_forensic_score_json(record: AnalysisRecord) -> dict[str, Any]:
+    fused = dict(record.forensic_score_json) if isinstance(record.forensic_score_json, dict) else {}
+    provenance = dict(fused.get("provenance")) if isinstance(fused.get("provenance"), dict) else {}
+    decision_path = dict(fused.get("decision_path")) if isinstance(fused.get("decision_path"), dict) else {}
+    ml_prediction = _normalized_image_ml_prediction(record)
+    detector = ml_prediction.get("detector") if isinstance(ml_prediction.get("detector"), dict) else {}
+    if detector:
+        provenance.setdefault("image_detector", detector.get("name"))
+        provenance.setdefault("image_detector_display_name", detector.get("display_name"))
+        provenance.setdefault("model_version", detector.get("model_version"))
+        provenance.setdefault("dataset_version", detector.get("dataset_version"))
+        weights = detector.get("weights")
+        if isinstance(weights, dict):
+            provenance.setdefault("weights_sha256", weights.get("sha256"))
+    provenance.setdefault("fusion_mode", "rule_based_forensic_fusion")
+    provenance.setdefault("fusion_weights", FUSION_WEIGHTS)
+    provenance.setdefault("classification_bands", CLASSIFICATION_BANDS)
+    decision_path.setdefault("production_path", True)
+    decision_path.setdefault("decision_engine", "rule_based_forensic_fusion")
+    decision_path.setdefault("learned_fusion_applied", False)
+    decision_path.setdefault("model_b_status", "offline_evaluation_only")
+    decision_path.setdefault("image_detector_role", "runtime_selectable_comparison_detector")
+    fused["provenance"] = provenance
+    fused["decision_path"] = decision_path
+    return fused
+
+
+def _normalized_video_metadata(record: VideoAnalysisRecord) -> dict[str, Any]:
+    metadata = dict(record.video_metadata) if isinstance(record.video_metadata, dict) else {}
+    detector = dict(metadata.get("image_detector")) if isinstance(metadata.get("image_detector"), dict) else {}
+    applied_settings = record.applied_settings if isinstance(record.applied_settings, dict) else {}
+    pipeline_settings = (
+        applied_settings.get("pipeline") if isinstance(applied_settings.get("pipeline"), dict) else {}
+    )
+    inferred_detector = _detector_metadata_from_name(pipeline_settings.get("image_detector"))
+    if inferred_detector:
+        merged_detector = dict(inferred_detector)
+        merged_detector.update({k: v for k, v in detector.items() if v not in (None, "", {})})
+        metadata["image_detector"] = merged_detector
+    elif detector:
+        metadata["image_detector"] = detector
+    return metadata
+
+
+def _image_provenance_rows(record: AnalysisRecord) -> list[tuple[str, str]]:
+    ml_prediction = _normalized_image_ml_prediction(record)
+    detector = ml_prediction.get("detector") if isinstance(ml_prediction.get("detector"), dict) else {}
+    fused = _normalized_image_forensic_score_json(record)
+    provenance = fused.get("provenance") if isinstance(fused.get("provenance"), dict) else {}
+    decision_path = fused.get("decision_path") if isinstance(fused.get("decision_path"), dict) else {}
+    return [
+        ("Image detector", _safe_text(detector.get("display_name") or detector.get("name"))),
+        ("Model version", _safe_text(detector.get("model_version") or provenance.get("model_version"))),
+        ("Dataset version", _safe_text(detector.get("dataset_version") or provenance.get("dataset_version"))),
+        ("Weights SHA-256", _truncate_value(detector.get("weights", {}).get("sha256") if isinstance(detector.get("weights"), dict) else provenance.get("weights_sha256"), 120)),
+        ("Fusion mode", _safe_text(provenance.get("fusion_mode"))),
+        ("Decision engine", _safe_text(decision_path.get("decision_engine"))),
+        ("Learned fusion applied", _safe_text(decision_path.get("learned_fusion_applied"))),
+        ("Model B status", _safe_text(decision_path.get("model_b_status"))),
+    ]
+
+
 def _build_image_report_pdf(record: AnalysisRecord) -> bytes:
     buffer = io.BytesIO()
     pdf = canvas.Canvas(buffer, pagesize=A4)
@@ -1092,6 +1619,24 @@ def _build_image_report_pdf(record: AnalysisRecord) -> bytes:
         limit=8,
     )
 
+    y = _draw_key_value_section(
+        pdf,
+        "Analysis Provenance",
+        _image_provenance_rows(record),
+        y,
+        width,
+        height,
+    )
+
+    y = _draw_key_value_section(
+        pdf,
+        "Applied Settings Snapshot",
+        _settings_summary_rows(record.applied_settings),
+        y,
+        width,
+        height,
+    )
+
     y = _ensure_page_space(pdf, y, 180, height)
     y = _draw_section_header(pdf, "Key Artifacts", y, width)
 
@@ -1185,6 +1730,64 @@ def _build_video_report_pdf(record: VideoAnalysisRecord) -> bytes:
             ("Resolution", _safe_text(video_metadata.get("resolution"))),
             ("Codec", _safe_text(video_metadata.get("codec"))),
         ],
+        y,
+        width,
+        height,
+    )
+
+    audio_analysis = record.audio_analysis if isinstance(record.audio_analysis, dict) else {}
+    if audio_analysis:
+        audio_integrity = audio_analysis.get("file_integrity") if isinstance(audio_analysis.get("file_integrity"), dict) else {}
+        y = _draw_key_value_section(
+            pdf,
+            "Extracted Audio Evidence",
+            [
+                ("Audio available", _safe_text(audio_analysis.get("available"))),
+                ("Audio classification", _safe_text(audio_analysis.get("classification"))),
+                ("Audio forensic score", _safe_text(audio_analysis.get("forensic_score"))),
+                ("Audio hashes match", _safe_text(audio_integrity.get("hashes_match"))),
+                ("Audio extraction error", _truncate_value(audio_analysis.get("error"), 120)),
+            ],
+            y,
+            width,
+            height,
+        )
+
+    image_detector = (
+        video_metadata.get("image_detector")
+        if isinstance(video_metadata.get("image_detector"), dict)
+        else {}
+    )
+    y = _draw_key_value_section(
+        pdf,
+        "Analysis Provenance",
+        [
+            ("Frame detector", _safe_text(image_detector.get("display_name") or image_detector.get("name"))),
+            ("Model version", _safe_text(image_detector.get("model_version"))),
+            ("Dataset version", _safe_text(image_detector.get("dataset_version"))),
+            (
+                "Weights SHA-256",
+                _truncate_value(
+                    (image_detector.get("weights") or {}).get("sha256")
+                    if isinstance(image_detector.get("weights"), dict)
+                    else "",
+                    120,
+                ),
+            ),
+            ("Fusion mode", "rule_based_forensic_fusion"),
+            ("Decision engine", "rule_based_forensic_fusion"),
+            ("Learned fusion applied", "False"),
+            ("Model B status", "offline_evaluation_only"),
+        ],
+        y,
+        width,
+        height,
+    )
+
+    y = _draw_key_value_section(
+        pdf,
+        "Applied Settings Snapshot",
+        _settings_summary_rows(record.applied_settings),
         y,
         width,
         height,
@@ -1308,6 +1911,28 @@ def _build_audio_report_pdf(record: AudioAnalysisRecord) -> bytes:
         height,
     )
 
+    y = _draw_key_value_section(
+        pdf,
+        "Applied Settings Snapshot",
+        _settings_summary_rows(record.applied_settings),
+        y,
+        width,
+        height,
+    )
+
+    y = _draw_key_value_section(
+        pdf,
+        "Analysis Provenance",
+        [
+            ("Decision engine", "audio_triage_rule_set"),
+            ("Learned fusion applied", "False"),
+            ("Model B status", "not_applicable"),
+        ],
+        y,
+        width,
+        height,
+    )
+
     findings = []
     if isinstance(audio_features.get("findings"), list):
         findings = [str(x) for x in audio_features.get("findings") or []]
@@ -1424,7 +2049,9 @@ async def analyse_image(
     # Run all analysis stages
     # -----------------------
 
-    analysis = await asyncio.to_thread(run_full_analysis, filepath)
+    settings_snapshot = _get_settings_snapshot(db)
+    runtime_settings = _analysis_runtime_settings(db)
+    analysis = await asyncio.to_thread(run_full_analysis, filepath, runtime_settings)
     file_integrity = analysis["file_integrity"]
     ml = analysis["ml"]
     ml_prob = analysis["ml_prob"]
@@ -1440,6 +2067,7 @@ async def analyse_image(
     heatmap_path = analysis["heatmap_path"]
     fused = analysis["fused"]
     camera_consistency = analysis["camera_consistency"]
+    detector_info = analysis["detector_info"]
 
     # -----------------------
     # Save to DB
@@ -1455,7 +2083,11 @@ async def analyse_image(
         gradcam_heatmap=str(heatmap_path),
         ela_heatmap=ela_info["ela_image_path"],
         forensic_score_json=fused,  # full JSON payload
-        ml_prediction={"probability": ml_prob, "label": ml["label"]},
+        ml_prediction={
+            "probability": ml_prob,
+            "label": ml["label"],
+            "detector": detector_info,
+        },
         metadata_anomalies=anomaly,
         file_integrity=file_integrity,
         ai_watermark=watermark_info,
@@ -1465,6 +2097,7 @@ async def analyse_image(
         jpeg_qtables=qtinfo,
         noise_residual=noise_info,
         ela_analysis=ela_info,
+        applied_settings=settings_snapshot,
     )
 
     db.add(record)
@@ -1481,9 +2114,11 @@ async def analyse_image(
             "classification": fused["classification"],
             "forensic_score": fused["final_score"],
             "pipeline_version": PIPELINE_VERSION,
-            "model_version": MODEL_VERSION,
-            "weights_sha256": MODEL_WEIGHTS_HASHES.get("sha256"),
+            "model_version": detector_info["model_version"],
+            "weights_sha256": detector_info["weights"].get("sha256"),
+            "image_detector": detector_info["name"],
             "hashes_sha256": file_integrity.get("hashes", {}).get("sha256"),
+            "settings_snapshot": settings_snapshot,
             "toolchain": _toolchain_snapshot(),
         },
         request=request,
@@ -1494,12 +2129,16 @@ async def analyse_image(
     # -----------------------
     return {
         "id": record.id,
-        "detector": "CNNDetection + GradCAM + Forensic Fusion + C2PA",
+        "detector": detector_info["display_name"],
         "input_file": original_name,
         "saved_path": str(filepath),
         "created_at": created_at.isoformat(),
         "file_integrity": file_integrity,
-        "ml_prediction": {"probability": ml_prob, "label": ml["label"]},
+        "ml_prediction": {
+            "probability": ml_prob,
+            "label": ml["label"],
+            "detector": detector_info,
+        },
         "metadata_anomalies": anomaly,
         "exif_forensics": exif_result,
         "c2pa": {
@@ -1551,6 +2190,7 @@ async def analyse_image(
         },
         "forensic_score": fused["final_score"],
         "classification": fused["classification"],
+        "applied_settings": settings_snapshot,
         "forensic_score_json": fused,
         "ela_heatmap": ela_info["ela_image_path"],
         "gradcam_heatmap": str(heatmap_path),
@@ -1576,6 +2216,8 @@ async def analyse_audio(
 
     saved_path = save_uploaded_file(file, max_bytes=_max_bytes_for_ext(ext))
     hashes_before = file_hashes(saved_path)
+    settings_snapshot = _get_settings_snapshot(db)
+    runtime_settings = _analysis_runtime_settings(db)
 
     waveform_path = AUDIO_PLOTS_DIR / f"{uuid.uuid4().hex}_waveform.png"
     analysis = await asyncio.to_thread(analyse_audio_file, saved_path, waveform_path)
@@ -1598,15 +2240,25 @@ async def analyse_audio(
     audio_features = dict(analysis["features"])
     audio_features["findings"] = analysis["findings"]
 
+    audio_bands = runtime_settings["audio_classification_bands"]
+    audio_score = float(analysis["forensic_score"])
+    if audio_score >= float(audio_bands["ai_likely_min"]):
+        audio_classification = "likely_ai_generated"
+    elif audio_score <= float(audio_bands["real_likely_max"]):
+        audio_classification = "likely_real"
+    else:
+        audio_classification = "uncertain"
+
     record = AudioAnalysisRecord(
         filename=original_name,
         saved_path=str(saved_path),
         waveform_path=str(waveform_path) if waveform_path else None,
-        forensic_score=analysis["forensic_score"],
-        classification=analysis["classification"],
+        forensic_score=audio_score,
+        classification=audio_classification,
         audio_metadata=audio_metadata,
         audio_features=audio_features,
         file_integrity=file_integrity,
+        applied_settings=settings_snapshot,
     )
 
     db.add(record)
@@ -1624,6 +2276,7 @@ async def analyse_audio(
             "pipeline_version": PIPELINE_VERSION,
             "analysis_mode": audio_features.get("analysis_mode"),
             "hashes_sha256": hashes_before.get("sha256"),
+            "settings_snapshot": settings_snapshot,
             "toolchain": _toolchain_snapshot(),
         },
         request=request,
@@ -1639,6 +2292,7 @@ async def analyse_audio(
         "audio_metadata": record.audio_metadata,
         "audio_features": record.audio_features,
         "file_integrity": record.file_integrity,
+        "applied_settings": record.applied_settings,
         "created_at": record.created_at,
     }
 
@@ -1658,22 +2312,27 @@ async def analyse_video(
 
     ext = Path(original_name).suffix.lower()
     saved_path = save_uploaded_file(file, max_bytes=_max_bytes_for_ext(ext))
+    runtime_settings = _analysis_runtime_settings(db)
+    settings_snapshot = _get_settings_snapshot(db)
 
     duration_seconds = get_video_duration_seconds(saved_path)
     if duration_seconds <= 0:
         saved_path.unlink(missing_ok=True)
         raise HTTPException(400, "Video appears to be invalid or unreadable.")
-    if duration_seconds > VIDEO_MAX_DURATION_SECONDS:
+    if duration_seconds > runtime_settings["video_max_duration_seconds"]:
         saved_path.unlink(missing_ok=True)
         raise HTTPException(
             400,
-            f"Video exceeds {VIDEO_MAX_DURATION_SECONDS} second length limit.",
+            f"Video exceeds {runtime_settings['video_max_duration_seconds']} second length limit.",
         )
     hashes_before = file_hashes(saved_path)
     video_metadata = extract_video_metadata(saved_path)
 
     analysis = await asyncio.to_thread(
-        run_video_analysis, saved_path, max_frames=VIDEO_SAMPLE_FRAMES
+        run_video_analysis,
+        saved_path,
+        max_frames=runtime_settings["video_sample_frames"],
+        runtime_settings=runtime_settings,
     )
 
     thumbnail_path = THUMB_DIR / f"{uuid.uuid4().hex}_video_thumb.jpg"
@@ -1687,6 +2346,9 @@ async def analyse_video(
     video_metadata["hashes_after"] = hashes_after
     video_metadata["hashes_match"] = hashes_before == hashes_after
     video_metadata["hashes"] = hashes_before
+    video_metadata["image_detector"] = (
+        analysis["frames"][0].get("detector_metadata") if analysis.get("frames") else None
+    )
 
     record = VideoAnalysisRecord(
         filename=original_name,
@@ -1697,6 +2359,8 @@ async def analyse_video(
         frame_count=analysis["frame_count"],
         frames_json=analysis["frames"],
         video_metadata=video_metadata,
+        audio_analysis=analysis.get("audio_analysis"),
+        applied_settings=settings_snapshot,
     )
 
     db.add(record)
@@ -1712,9 +2376,11 @@ async def analyse_video(
             "classification": record.classification,
             "forensic_score": record.forensic_score,
             "pipeline_version": PIPELINE_VERSION,
-            "model_version": MODEL_VERSION,
-            "weights_sha256": MODEL_WEIGHTS_HASHES.get("sha256"),
+            "model_version": (video_metadata.get("image_detector") or {}).get("model_version"),
+            "weights_sha256": ((video_metadata.get("image_detector") or {}).get("weights") or {}).get("sha256"),
+            "image_detector": (video_metadata.get("image_detector") or {}).get("name"),
             "hashes_sha256": video_metadata.get("hashes", {}).get("sha256"),
+            "settings_snapshot": settings_snapshot,
             "toolchain": _toolchain_snapshot(),
         },
         request=request,
@@ -1730,6 +2396,8 @@ async def analyse_video(
         "frame_count": record.frame_count,
         "frames": record.frames_json,
         "video_metadata": record.video_metadata,
+        "audio_analysis": record.audio_analysis,
+        "applied_settings": record.applied_settings,
         "created_at": record.created_at,
     }
 
@@ -1738,6 +2406,7 @@ async def analyse_video(
 async def analyse_video_async(
     request: Request,
     file: UploadFile = File(...),
+    db: Session = Depends(get_db),
 ):
     if not (file.content_type or "").startswith("video/"):
         raise HTTPException(400, "Please upload a video file.")
@@ -1748,16 +2417,17 @@ async def analyse_video_async(
 
     ext = Path(original_name).suffix.lower()
     saved_path = save_uploaded_file(file, max_bytes=_max_bytes_for_ext(ext))
+    runtime_settings = _analysis_runtime_settings(db)
 
     duration_seconds = get_video_duration_seconds(saved_path)
     if duration_seconds <= 0:
         saved_path.unlink(missing_ok=True)
         raise HTTPException(400, "Video appears to be invalid or unreadable.")
-    if duration_seconds > VIDEO_MAX_DURATION_SECONDS:
+    if duration_seconds > runtime_settings["video_max_duration_seconds"]:
         saved_path.unlink(missing_ok=True)
         raise HTTPException(
             400,
-            f"Video exceeds {VIDEO_MAX_DURATION_SECONDS} second length limit.",
+            f"Video exceeds {runtime_settings['video_max_duration_seconds']} second length limit.",
         )
 
     job_id = uuid.uuid4().hex
@@ -1844,34 +2514,43 @@ def list_audit_logs(
 
 
 @app.get("/settings", response_model=SettingsSnapshot)
-def get_settings():
-    return {
-        "pipeline": {
-            "pipeline_version": PIPELINE_VERSION,
-            "model_version": MODEL_VERSION,
-            "dataset_version": DATASET_VERSION,
-            "weights": MODEL_WEIGHTS_HASHES,
+def get_settings(db: Session = Depends(get_db)):
+    return _get_settings_snapshot(db)
+
+
+@app.put("/settings", response_model=SettingsSnapshot)
+def update_settings(
+    payload: SettingsUpdateRequest,
+    request: Request,
+    admin_key: str = Header(None),
+    db: Session = Depends(get_db),
+):
+    _validate_admin(request, admin_key)
+    cleaned = _validate_settings_update(payload)
+    current = _get_runtime_overrides(db)
+    merged = _merge_settings(current, cleaned)
+
+    row = db.query(AppSetting).filter(AppSetting.key == "runtime").first()
+    if row:
+        row.value = merged
+    else:
+        row = AppSetting(key="runtime", value=merged)
+        db.add(row)
+    db.commit()
+
+    snapshot = _get_settings_snapshot(db)
+    _log_audit(
+        action="settings_updated",
+        record_type="settings",
+        record_id=None,
+        filename=None,
+        details={
+            "updated_fields": cleaned,
+            "snapshot": snapshot,
         },
-        "limits": {
-            "max_image_mb": MAX_IMAGE_MB,
-            "max_video_mb": MAX_VIDEO_MB,
-            "max_audio_mb": MAX_AUDIO_MB,
-            "max_upload_mb": MAX_UPLOAD_MB,
-            "rate_limit_per_minute": RATE_LIMIT_PER_MINUTE,
-            "retention_days": RETENTION_DAYS,
-            "retention_interval_hours": RETENTION_INTERVAL_HOURS,
-        },
-        "thresholds": {
-            "classification_bands": CLASSIFICATION_BANDS,
-            "fusion_weights": FUSION_WEIGHTS,
-            "video_max_duration_seconds": VIDEO_MAX_DURATION_SECONDS,
-            "video_sample_frames": VIDEO_SAMPLE_FRAMES,
-            "audio_classification_bands": AUDIO_CLASSIFICATION_BANDS,
-            "scene_cut_threshold": 0.6,
-            "scene_cut_stride": 10,
-        },
-        "toolchain": _toolchain_snapshot(),
-    }
+        request=request,
+    )
+    return snapshot
 
 
 # ---------------------------
@@ -1887,6 +2566,7 @@ def list_analysis(
     filename: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
+    media_type: str | None = None,
     db: Session = Depends(get_db),
 ):
     def parse_iso_date(value: str, field: str) -> datetime:
@@ -1909,27 +2589,58 @@ def list_analysis(
             filters.append(model.created_at <= parse_iso_date(date_to, "date_to"))
         return filters
 
-    image_select = select(
-        AnalysisRecord.id.label("id"),
-        AnalysisRecord.filename.label("filename"),
-        AnalysisRecord.forensic_score.label("forensic_score"),
-        AnalysisRecord.classification.label("classification"),
-        AnalysisRecord.created_at.label("created_at"),
-        AnalysisRecord.thumbnail_path.label("thumbnail_path"),
-        literal("image").label("media_type"),
-    ).where(*build_filters(AnalysisRecord))
+    selects = []
+    if media_type in (None, "", "image"):
+        selects.append(
+            select(
+                AnalysisRecord.id.label("id"),
+                AnalysisRecord.filename.label("filename"),
+                AnalysisRecord.forensic_score.label("forensic_score"),
+                AnalysisRecord.classification.label("classification"),
+                AnalysisRecord.created_at.label("created_at"),
+                AnalysisRecord.thumbnail_path.label("thumbnail_path"),
+                literal("image").label("media_type"),
+            ).where(*build_filters(AnalysisRecord))
+        )
 
-    video_select = select(
-        VideoAnalysisRecord.id.label("id"),
-        VideoAnalysisRecord.filename.label("filename"),
-        VideoAnalysisRecord.forensic_score.label("forensic_score"),
-        VideoAnalysisRecord.classification.label("classification"),
-        VideoAnalysisRecord.created_at.label("created_at"),
-        VideoAnalysisRecord.thumbnail_path.label("thumbnail_path"),
-        literal("video").label("media_type"),
-    ).where(*build_filters(VideoAnalysisRecord))
+    if media_type in (None, "", "video"):
+        selects.append(
+            select(
+                VideoAnalysisRecord.id.label("id"),
+                VideoAnalysisRecord.filename.label("filename"),
+                VideoAnalysisRecord.forensic_score.label("forensic_score"),
+                VideoAnalysisRecord.classification.label("classification"),
+                VideoAnalysisRecord.created_at.label("created_at"),
+                VideoAnalysisRecord.thumbnail_path.label("thumbnail_path"),
+                literal("video").label("media_type"),
+            ).where(*build_filters(VideoAnalysisRecord))
+        )
 
-    combined_query = union_all(image_select, video_select).subquery()
+    if media_type in (None, "", "audio"):
+        selects.append(
+            select(
+                AudioAnalysisRecord.id.label("id"),
+                AudioAnalysisRecord.filename.label("filename"),
+                AudioAnalysisRecord.forensic_score.label("forensic_score"),
+                AudioAnalysisRecord.classification.label("classification"),
+                AudioAnalysisRecord.created_at.label("created_at"),
+                AudioAnalysisRecord.waveform_path.label("thumbnail_path"),
+                literal("audio").label("media_type"),
+            ).where(*build_filters(AudioAnalysisRecord))
+        )
+
+    if not selects:
+        return {
+            "data": [],
+            "total": 0,
+            "page": page,
+            "limit": limit,
+            "total_pages": 0,
+        }
+
+    combined_query = (
+        selects[0].subquery() if len(selects) == 1 else union_all(*selects).subquery()
+    )
 
     total = db.execute(select(func.count()).select_from(combined_query)).scalar_one()
     offset = (page - 1) * limit
@@ -1947,7 +2658,13 @@ def list_analysis(
             "forensic_score": row._mapping["forensic_score"],
             "classification": row._mapping["classification"],
             "created_at": row._mapping["created_at"],
-            "thumbnail_url": f"/thumbnails/{Path(row._mapping['thumbnail_path']).name}",
+            "thumbnail_url": (
+                f"/audio_plots/{Path(row._mapping['thumbnail_path']).name}"
+                if row._mapping["media_type"] == "audio" and row._mapping["thumbnail_path"]
+                else f"/thumbnails/{Path(row._mapping['thumbnail_path']).name}"
+                if row._mapping["thumbnail_path"]
+                else ""
+            ),
             "media_type": row._mapping["media_type"],
         }
         for row in rows
@@ -1969,6 +2686,8 @@ def get_analysis(record_id: int, db: Session = Depends(get_db)):
     if not record:
         raise HTTPException(404, "Record not found")
 
+    normalized_ml_prediction = _normalized_image_ml_prediction(record)
+    normalized_fused = _normalized_image_forensic_score_json(record)
     return {
         "id": record.id,
         "filename": record.filename,
@@ -1977,10 +2696,10 @@ def get_analysis(record_id: int, db: Session = Depends(get_db)):
         "ml_label": record.ml_label,
         "forensic_score": record.forensic_score,  # float
         "classification": record.classification,  # string
-        "forensic_score_json": record.forensic_score_json,  # full JSON
+        "forensic_score_json": normalized_fused,  # full JSON
         "gradcam_heatmap": record.gradcam_heatmap,
         "ela_heatmap": record.ela_heatmap,
-        "ml_prediction": record.ml_prediction,
+        "ml_prediction": normalized_ml_prediction,
         "metadata_anomalies": record.metadata_anomalies,
         "file_integrity": record.file_integrity,
         "ai_watermark": record.ai_watermark,
@@ -1991,6 +2710,7 @@ def get_analysis(record_id: int, db: Session = Depends(get_db)):
         "noise_residual": record.noise_residual,
         "ela_analysis": record.ela_analysis,
         "raw_metadata": record.metadata_json,
+        "applied_settings": record.applied_settings,
         "created_at": record.created_at,
     }
 
@@ -2004,6 +2724,7 @@ def get_video_analysis(record_id: int, db: Session = Depends(get_db)):
     if not record:
         raise HTTPException(404, "Record not found")
 
+    normalized_video_metadata = _normalized_video_metadata(record)
     return {
         "id": record.id,
         "filename": record.filename,
@@ -2013,7 +2734,9 @@ def get_video_analysis(record_id: int, db: Session = Depends(get_db)):
         "classification": record.classification,
         "frame_count": record.frame_count,
         "frames": record.frames_json,
-        "video_metadata": record.video_metadata,
+        "video_metadata": normalized_video_metadata,
+        "audio_analysis": record.audio_analysis,
+        "applied_settings": record.applied_settings,
         "created_at": record.created_at,
     }
 
@@ -2088,6 +2811,7 @@ def get_audio_analysis(record_id: int, db: Session = Depends(get_db)):
         "audio_metadata": record.audio_metadata,
         "audio_features": record.audio_features,
         "file_integrity": record.file_integrity,
+        "applied_settings": record.applied_settings,
         "created_at": record.created_at,
     }
 
@@ -2181,8 +2905,7 @@ def delete_analysis(
     admin_key: str = Header(None),
     db: Session = Depends(get_db),
 ):
-    if admin_key != ADMIN_KEY:
-        raise HTTPException(403, "Invalid admin key")
+    _validate_admin(request, admin_key)
 
     record = db.query(AnalysisRecord).filter(AnalysisRecord.id == record_id).first()
 
@@ -2209,8 +2932,7 @@ def delete_audio_analysis(
     admin_key: str = Header(None),
     db: Session = Depends(get_db),
 ):
-    if admin_key != ADMIN_KEY:
-        raise HTTPException(403, "Invalid admin key")
+    _validate_admin(request, admin_key)
 
     record = (
         db.query(AudioAnalysisRecord).filter(AudioAnalysisRecord.id == record_id).first()
@@ -2239,8 +2961,7 @@ def delete_video_analysis(
     admin_key: str = Header(None),
     db: Session = Depends(get_db),
 ):
-    if admin_key != ADMIN_KEY:
-        raise HTTPException(403, "Invalid admin key")
+    _validate_admin(request, admin_key)
 
     record = (
         db.query(VideoAnalysisRecord).filter(VideoAnalysisRecord.id == record_id).first()
