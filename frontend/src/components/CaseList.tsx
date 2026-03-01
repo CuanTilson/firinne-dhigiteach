@@ -1,7 +1,7 @@
 import React from "react";
 import type { AnalysisRecordSummary } from "../types";
 import { Badge } from "./ui/Badge";
-import { Eye, Trash2, Calendar, Film, Printer } from "lucide-react";
+import { Eye, Trash2, Calendar, Film, Printer, AudioWaveform } from "lucide-react";
 import { API_BASE_URL } from "../constants";
 import { Link } from "react-router-dom";
 
@@ -36,10 +36,14 @@ export const CaseList: React.FC<Props> = ({ records, loading, onDelete }) => {
         const detailPath =
           record.media_type === "video"
             ? `/videos/${record.id}`
+            : record.media_type === "audio"
+            ? `/audio/${record.id}`
             : `/records/${record.id}`;
         const printPath =
           record.media_type === "video"
             ? `#/print/videos/${record.id}`
+            : record.media_type === "audio"
+            ? `#/print/audio/${record.id}`
             : `#/print/records/${record.id}`;
 
         return (
@@ -66,6 +70,9 @@ export const CaseList: React.FC<Props> = ({ records, loading, onDelete }) => {
                 >
                   {record.media_type === "video" && (
                     <Film size={14} className="text-cyan-300" />
+                  )}
+                  {record.media_type === "audio" && (
+                    <AudioWaveform size={14} className="text-cyan-300" />
                   )}
                   {record.filename}
                 </div>
