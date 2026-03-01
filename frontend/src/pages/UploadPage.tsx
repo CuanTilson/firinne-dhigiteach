@@ -1,14 +1,16 @@
 import React, { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { UploadCloud, AlertCircle } from "lucide-react";
-import { detectImage, detectVideoAsync, getVideoJob } from "../services/api";
-import type { AnalysisResult, VideoAnalysisDetail } from "../types";
+import { detectAudio, detectImage, detectVideoAsync, getVideoJob } from "../services/api";
+import type { AnalysisResult, AudioAnalysisDetail, VideoAnalysisDetail } from "../types";
 import { AnalysisDashboard } from "../components/AnalysisDashboard";
 import { Button } from "../components/ui/Button";
 
-let activeAnalysisPromise: Promise<AnalysisResult | VideoAnalysisDetail> | null =
+let activeAnalysisPromise: Promise<
+  AnalysisResult | VideoAnalysisDetail | AudioAnalysisDetail
+> | null =
   null;
-let activeAnalysisType: "image" | "video" | null = null;
+let activeAnalysisType: "image" | "video" | "audio" | null = null;
 let activeAnalysisFile: File | null = null;
 let activeAnalysisPreview: string | null = null;
 
@@ -22,7 +24,7 @@ export const UploadPage: React.FC = () => {
   const [previewFailed, setPreviewFailed] = useState(false);
   const [persistedFilename, setPersistedFilename] = useState<string | null>(null);
   const [persistedMediaType, setPersistedMediaType] = useState<
-    "video" | "image" | null
+    "video" | "image" | "audio" | null
   >(null);
   const persistJob = (data: Record<string, unknown> | null) => {
     try {
@@ -70,7 +72,7 @@ export const UploadPage: React.FC = () => {
           status: string;
           filename?: string;
           resultId?: number;
-          mediaType?: "video" | "image";
+          mediaType?: "video" | "image" | "audio";
           previewUrl?: string | null;
         };
       } catch {
@@ -193,6 +195,11 @@ export const UploadPage: React.FC = () => {
           navigate(`/videos/${video.id}`);
           return;
         }
+        if (activeAnalysisType === "audio") {
+          const audio = data as AudioAnalysisDetail;
+          navigate(`/audio/${audio.id}`);
+          return;
+        }
         setResult(data as AnalysisResult);
       })
       .catch(() => {
@@ -242,7 +249,8 @@ export const UploadPage: React.FC = () => {
     activeAnalysisFile = file;
     activeAnalysisPreview = preview;
     const isVideo = (file.type || "").startsWith("video/");
-    activeAnalysisType = isVideo ? "video" : "image";
+    const isAudio = (file.type || "").startsWith("audio/");
+    activeAnalysisType = isVideo ? "video" : isAudio ? "audio" : "image";
 
     try {
       if (isVideo) {
@@ -307,17 +315,27 @@ export const UploadPage: React.FC = () => {
         };
         await poll();
       } else {
-        activeAnalysisPromise = detectImage(file);
+        activeAnalysisPromise = isAudio ? detectAudio(file) : detectImage(file);
         const data = await activeAnalysisPromise;
+        if (isAudio) {
+          const audioResult = data as AudioAnalysisDetail;
+          if (audioResult.id) {
+            persistJob(null);
+            navigate(`/audio/${audioResult.id}`);
+            return;
+          }
+        }
         const imageResult = data as AnalysisResult;
-        if (imageResult.id) {
+        if (!isAudio && imageResult.id) {
           persistJob(null);
           navigate(`/records/${imageResult.id}`);
           return;
         }
-        setResult(imageResult);
-        setPersistedMediaType("image");
-        setPersistedFilename(imageResult.filename || null);
+        if (!isAudio) {
+          setResult(imageResult);
+          setPersistedMediaType("image");
+          setPersistedFilename(imageResult.filename || null);
+        }
       }
     } catch {
       setError("Failed to analyse media. Please ensure backend is running.");
@@ -365,7 +383,7 @@ export const UploadPage: React.FC = () => {
           New Analysis
         </h1>
         <p className="text-slate-400 max-w-2xl">
-          Upload an image or video to detect AI-generated content, manipulate
+          Upload an image, video, or audio file to detect AI-generated content, manipulate
           artifacts, and metadata anomalies.
         </p>
       </div>
@@ -392,6 +410,16 @@ export const UploadPage: React.FC = () => {
                     onError={() => setPreviewFailed(true)}
                     className="max-h-[300px] rounded-lg shadow-xl"
                   />
+                ) : (file?.type || "").startsWith("audio/") ? (
+                  <div className="bg-slate-950 border border-slate-800 rounded-lg p-6 shadow-xl min-w-[320px]">
+                    <div className="text-sm text-slate-400 mb-3">{file?.name}</div>
+                    <audio
+                      src={preview}
+                      controls
+                      onError={() => setPreviewFailed(true)}
+                      className="w-full"
+                    />
+                  </div>
                 ) : (
                   <img
                     src={preview}
@@ -432,15 +460,15 @@ export const UploadPage: React.FC = () => {
                   Drag & Drop Media
                 </h3>
                 <p className="text-slate-500 mb-6 max-w-sm mx-auto">
-                  Supported formats: JPEG, PNG, WEBP, TIFF, MP4, MOV. Max file
-                  size: 200MB, max length: 3 minutes.
+                  Supported formats: JPEG, PNG, WEBP, TIFF, MP4, MOV, WAV, MP3,
+                  M4A, FLAC. Max file size: 200MB, max video length: 3 minutes.
                 </p>
                 <input
                   type="file"
                   ref={fileInputRef}
                   onChange={handleFileChange}
                   className="hidden"
-                  accept="image/*,video/*"
+                  accept="image/*,video/*,audio/*,.wav,.mp3,.m4a,.flac"
                 />
                 <div className="flex justify-center">
                   <Button onClick={() => fileInputRef.current?.click()}>
@@ -469,15 +497,19 @@ export const UploadPage: React.FC = () => {
                 Analysing{" "}
                 {file?.type?.startsWith("video/")
                   ? "Video"
+                  : file?.type?.startsWith("audio/")
+                  ? "Audio"
                   : file
                   ? "Image"
                   : persistedMediaType === "video"
                   ? "Video"
+                  : persistedMediaType === "audio"
+                  ? "Audio"
                   : "Image"}
                 ...
               </h3>
               <p className="text-slate-500 mt-2">
-                Running CNN detection, ELA, and metadata extraction.
+                Running forensic checks and metadata extraction.
               </p>
               {jobStatus && (
                 <p className="text-slate-400 mt-2 text-sm">
