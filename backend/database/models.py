@@ -32,6 +32,7 @@ class AnalysisRecord(Base):
     jpeg_qtables = Column(JSON)
     noise_residual = Column(JSON)
     ela_analysis = Column(JSON)
+    applied_settings = Column(JSON)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -51,6 +52,8 @@ class VideoAnalysisRecord(Base):
     frame_count = Column(Integer)
     frames_json = Column(JSON)
     video_metadata = Column(JSON)
+    audio_analysis = Column(JSON)
+    applied_settings = Column(JSON)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -70,6 +73,7 @@ class AudioAnalysisRecord(Base):
     audio_metadata = Column(JSON)
     audio_features = Column(JSON)
     file_integrity = Column(JSON)
+    applied_settings = Column(JSON)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -86,3 +90,11 @@ class AuditLog(Base):
     details = Column(JSON)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class AppSetting(Base):
+    __tablename__ = "app_settings"
+
+    key = Column(String, primary_key=True, index=True)
+    value = Column(JSON)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
