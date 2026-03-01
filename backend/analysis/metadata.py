@@ -89,6 +89,18 @@ def _is_binary_string(s: str) -> bool:
     return ascii_printables < (len(s) * 0.6)
 
 
+def _dedupe_preserve_order(items: list[str]) -> list[str]:
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for item in items:
+        normalized = item.strip()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        deduped.append(normalized)
+    return deduped
+
+
 def analyse_image_metadata(meta: dict) -> dict:
     """Basic heuristic scoring for EXIF metadata consistency."""
     findings = []
@@ -120,7 +132,7 @@ def analyse_image_metadata(meta: dict) -> dict:
 
     return {
         "anomaly_score": min(score, 1.0),
-        "findings": findings,
+        "findings": _dedupe_preserve_order(findings),
     }
 
 
@@ -156,7 +168,7 @@ def check_camera_model_consistency(meta: dict) -> dict:
 
     return {
         "score": min(score, 1.0),
-        "warnings": warnings,
+        "warnings": _dedupe_preserve_order(warnings),
         "make": make_raw or None,
         "model": model_raw or None,
     }
@@ -255,7 +267,7 @@ def exif_forensics(metadata: dict) -> dict:
         score += 0.10
 
     return {
-        "warnings": warnings,
+        "warnings": _dedupe_preserve_order(warnings),
         "score": min(score, 1.0),
     }
 
