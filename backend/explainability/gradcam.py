@@ -34,7 +34,11 @@ class GradCAM:
         self.gradients = grad_output[0].detach()
 
     def generate(
-        self, input_tensor, original_image_path: Path, save_path: Path
+        self,
+        input_tensor,
+        original_image_path: Path,
+        save_path: Path,
+        target_index: int | None = None,
     ) -> Path:
         """
         - input_tensor: full-resolution tensor from your CNNDetectionModel
@@ -60,7 +64,11 @@ class GradCAM:
         self.model.zero_grad()
 
         output = self.model(small_tensor)
-        output.backward(torch.ones_like(output))
+        if output.ndim == 2 and output.shape[1] > 1:
+            index = int(target_index if target_index is not None else torch.argmax(output, dim=1).item())
+            output[:, index].sum().backward()
+        else:
+            output.backward(torch.ones_like(output))
 
         # ——— 3. Compute weighted activations ———
         pooled_gradients = torch.mean(self.gradients, dim=[0, 2, 3])
