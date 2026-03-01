@@ -43,6 +43,7 @@ class AnalysisDetail(BaseModel):
     ela_analysis: Optional[Any]
 
     raw_metadata: Optional[dict]
+    applied_settings: Optional[Any]
 
     created_at: datetime
 
@@ -67,6 +68,8 @@ class VideoAnalysisDetail(BaseModel):
     frame_count: int
     frames: list[Any]
     video_metadata: Optional[Any]
+    audio_analysis: Optional[Any]
+    applied_settings: Optional[Any]
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -82,6 +85,7 @@ class AudioAnalysisDetail(BaseModel):
     audio_metadata: Optional[Any]
     audio_features: Optional[Any]
     file_integrity: Optional[Any]
+    applied_settings: Optional[Any]
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -112,4 +116,11 @@ class SettingsSnapshot(BaseModel):
     pipeline: dict[str, Any]
     limits: dict[str, Any]
     thresholds: dict[str, Any]
+    paths: dict[str, Any]
     toolchain: dict[str, Any]
+
+
+class SettingsUpdateRequest(BaseModel):
+    pipeline: Optional[dict[str, Any]] = None
+    thresholds: Optional[dict[str, Any]] = None
+    paths: Optional[dict[str, Any]] = None
