@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import contextlib
-import math
+import os
+import shutil
+import subprocess
 import wave
 from pathlib import Path
 
@@ -218,4 +220,110 @@ def analyse_audio_file(audio_path: Path, waveform_output_path: Path | None = Non
         "findings": findings,
         "forensic_score": score,
         "classification": classification,
+    }
+
+
+def extract_audio_from_video(
+    video_path: Path,
+    output_path: Path,
+    configured_ffmpeg_path: str | None = None,
+) -> dict:
+    ffmpeg_path = resolve_ffmpeg_path(configured_ffmpeg_path)
+    if not ffmpeg_path:
+        return {
+            "ok": False,
+            "output_path": None,
+            "error": "ffmpeg was not found. Configure an explicit ffmpeg path in settings or install it on PATH.",
+        }
+
+    return _extract_audio_from_video(video_path, output_path, ffmpeg_path)
+
+
+def resolve_ffmpeg_path(configured_path: str | None = None) -> str | None:
+    candidates: list[str] = []
+    if configured_path:
+        candidates.append(configured_path)
+
+    env_path = os.getenv("FD_FFMPEG_PATH")
+    if env_path:
+        candidates.append(env_path)
+
+    path_lookup = shutil.which("ffmpeg")
+    if path_lookup:
+        candidates.append(path_lookup)
+
+    local_candidates = [
+        Path("tools/ffmpeg/bin/ffmpeg.exe"),
+        Path("backend/tools/ffmpeg/bin/ffmpeg.exe"),
+        Path.home() / "ffmpeg" / "bin" / "ffmpeg.exe",
+        Path(os.getenv("ProgramFiles", "")) / "ffmpeg" / "bin" / "ffmpeg.exe",
+        Path(os.getenv("ProgramFiles(x86)", "")) / "ffmpeg" / "bin" / "ffmpeg.exe",
+        Path(os.getenv("LOCALAPPDATA", "")) / "Microsoft" / "WinGet" / "Links" / "ffmpeg.exe",
+        Path("C:/ffmpeg/bin/ffmpeg.exe"),
+        Path("C:/tools/ffmpeg/bin/ffmpeg.exe"),
+    ]
+    candidates.extend(str(path) for path in local_candidates if str(path).strip())
+
+    seen: set[str] = set()
+    for candidate in candidates:
+        normalized = str(Path(candidate)).strip().strip('"')
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        if Path(normalized).is_file():
+            return normalized
+        resolved = shutil.which(normalized)
+        if resolved:
+            return resolved
+    return None
+
+
+def _extract_audio_from_video(video_path: Path, output_path: Path, ffmpeg_path: str) -> dict:
+    if not ffmpeg_path:
+        return {
+            "ok": False,
+            "output_path": None,
+            "error": "ffmpeg was not found.",
+        }
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    command = [
+        ffmpeg_path,
+        "-y",
+        "-i",
+        str(video_path),
+        "-vn",
+        "-ac",
+        "1",
+        "-ar",
+        "16000",
+        "-f",
+        "wav",
+        str(output_path),
+    ]
+    try:
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except Exception as exc:
+        return {
+            "ok": False,
+            "output_path": None,
+            "error": f"ffmpeg execution failed: {exc}",
+        }
+
+    if completed.returncode != 0 or not output_path.exists():
+        return {
+            "ok": False,
+            "output_path": None,
+            "error": (completed.stderr or completed.stdout or "ffmpeg failed").strip(),
+        }
+
+    return {
+        "ok": True,
+        "output_path": str(output_path),
+        "error": None,
     }
