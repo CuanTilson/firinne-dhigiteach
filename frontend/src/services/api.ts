@@ -2,11 +2,13 @@ import { API_ENDPOINTS, API_BASE_URL, DEFAULT_ADMIN_KEY, API_KEY } from "../cons
 import type {
   AnalysisRecordSummary,
   AnalysisResult,
+  AudioAnalysisDetail,
   AuditLogEntry,
   MediaType,
   PaginatedResponse,
   RecordFilters,
   SettingsSnapshot,
+  SettingsUpdatePayload,
   VideoAnalysisDetail,
   VideoJobStatus,
 } from "../types";
@@ -63,6 +65,23 @@ export const detectVideo = async (file: File): Promise<VideoAnalysisDetail> => {
     console.error("Video Detect API Error:", error);
     throw error;
   }
+};
+
+export const detectAudio = async (file: File): Promise<AudioAnalysisDetail> => {
+  const formData = new FormData();
+  formData.append("file", file);
+  const headers: Record<string, string> = {};
+  if (API_KEY) headers["x-api-key"] = API_KEY;
+
+  const response = await fetch(API_ENDPOINTS.DETECT_AUDIO, {
+    method: "POST",
+    body: formData,
+    headers,
+  });
+  if (!response.ok) {
+    throw new Error(`Audio analysis failed: ${response.statusText}`);
+  }
+  return await response.json();
 };
 
 /**
@@ -126,6 +145,7 @@ export const getRecords = async (
   if (filters.classification) params.append('classification', filters.classification);
   if (filters.date_from) params.append('date_from', filters.date_from);
   if (filters.date_to) params.append('date_to', filters.date_to);
+  if (filters.media_type) params.append('media_type', filters.media_type);
   const headers: Record<string, string> = {};
   if (API_KEY) headers["x-api-key"] = API_KEY;
 
@@ -157,6 +177,33 @@ export const getRecordById = async (id: number): Promise<AnalysisResult> => {
   }
 };
 
+export const getAudioRecords = async (
+  page: number = 1,
+  limit: number = 20,
+  filters: Pick<RecordFilters, "filename" | "classification"> = {}
+): Promise<PaginatedResponse<AnalysisRecordSummary>> => {
+  const params = new URLSearchParams();
+  params.append("page", page.toString());
+  params.append("limit", limit.toString());
+  if (filters.filename) params.append("filename", filters.filename);
+  if (filters.classification) params.append("classification", filters.classification);
+  const headers: Record<string, string> = {};
+  if (API_KEY) headers["x-api-key"] = API_KEY;
+  const response = await fetch(`${API_ENDPOINTS.AUDIO_RECORDS}?${params.toString()}`, {
+    headers,
+  });
+  if (!response.ok) throw new Error("Failed to fetch audio records");
+  return await response.json();
+};
+
+export const getAudioById = async (id: number): Promise<AudioAnalysisDetail> => {
+  const headers: Record<string, string> = {};
+  if (API_KEY) headers["x-api-key"] = API_KEY;
+  const response = await fetch(`${API_ENDPOINTS.AUDIO_RECORDS}/${id}`, { headers });
+  if (!response.ok) throw new Error("Failed to fetch audio details");
+  return await response.json();
+};
+
 /**
  * Fetches a single video record detail
  */
@@ -184,7 +231,11 @@ export const deleteRecord = async (
   const resolvedKey = adminKey ?? DEFAULT_ADMIN_KEY;
   try {
     const endpoint =
-      mediaType === "video" ? API_ENDPOINTS.VIDEO_RECORDS : API_ENDPOINTS.RECORDS;
+      mediaType === "video"
+        ? API_ENDPOINTS.VIDEO_RECORDS
+        : mediaType === "audio"
+        ? API_ENDPOINTS.AUDIO_RECORDS
+        : API_ENDPOINTS.RECORDS;
     const headers: Record<string, string> = {};
     if (resolvedKey) headers["admin-key"] = resolvedKey;
     if (API_KEY) headers["x-api-key"] = API_KEY;
@@ -238,6 +289,26 @@ export const getSettings = async (): Promise<SettingsSnapshot> => {
   return await response.json();
 };
 
+export const updateSettings = async (
+  payload: SettingsUpdatePayload,
+  adminKey?: string
+): Promise<SettingsSnapshot> => {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (API_KEY) headers["x-api-key"] = API_KEY;
+  const resolvedKey = adminKey ?? DEFAULT_ADMIN_KEY;
+  if (resolvedKey) headers["admin-key"] = resolvedKey;
+
+  const response = await fetch(API_ENDPOINTS.SETTINGS, {
+    method: "PUT",
+    headers,
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) throw new Error("Failed to update settings");
+  return await response.json();
+};
+
 const downloadPdf = async (endpoint: string, filename: string): Promise<void> => {
   const headers: Record<string, string> = {};
   if (API_KEY) headers["x-api-key"] = API_KEY;
@@ -267,5 +338,12 @@ export const downloadVideoReportPdf = async (recordId: number): Promise<void> =>
   await downloadPdf(
     `${API_ENDPOINTS.VIDEO_RECORDS}/${recordId}/report.pdf`,
     `case_${recordId}_video_report.pdf`
+  );
+};
+
+export const downloadAudioReportPdf = async (recordId: number): Promise<void> => {
+  await downloadPdf(
+    `${API_ENDPOINTS.AUDIO_RECORDS}/${recordId}/report.pdf`,
+    `case_${recordId}_audio_report.pdf`
   );
 };
