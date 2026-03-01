@@ -43,10 +43,12 @@ docs/
 - `docs/Week 3/week3-model-a-baseline.md`
 - `docs/Week 3/week3-model-b-preparation.md`
 - `docs/Week 3/week3-evaluation-summary.md`
+- `docs/Week 3/week3-threshold-policy.md`
 
 ### Week 4
 - `docs/Week 4/week4-audio-backend-scaffold.md`
 - `docs/Week 4/week4-decision-integration.md`
+- `docs/Week 4/week4-final-configuration.md`
 
 ## Documentation Principles
 
