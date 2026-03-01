@@ -8,6 +8,7 @@ import {
   Settings,
   X,
   Film,
+  AudioWaveform,
 } from "lucide-react";
 import { checkBackend, getVideoJob } from "../services/api";
 
@@ -169,6 +170,19 @@ export const Layout: React.FC = () => {
           >
             <History size={20} />
             <span>Case History</span>
+          </NavLink>
+          <NavLink
+            to="/audio-history"
+            className={({ isActive }) =>
+              `flex items-center gap-3 px-4 py-3 rounded-lg transition-colors font-medium ${
+                isActive
+                  ? "bg-slate-900 text-cyan-300 border border-slate-800"
+                  : "text-slate-400 hover:text-slate-100 hover:bg-slate-900/60"
+              }`
+            }
+          >
+            <AudioWaveform size={20} />
+            <span>Audio Cases</span>
           </NavLink>
           <NavLink
             to="/audit"
