@@ -3,6 +3,7 @@ import { getRecords, deleteRecord } from "../services/api";
 import type {
   AnalysisRecordSummary,
   ClassificationType,
+  MediaType,
   RecordFilters,
 } from "../types";
 import { CaseList } from "../components/CaseList";
@@ -10,7 +11,17 @@ import { Button } from "../components/ui/Button";
 import { Search, Filter, RefreshCw } from "lucide-react";
 import { DEFAULT_ADMIN_KEY } from "../constants";
 
-export const HistoryPage: React.FC = () => {
+interface HistoryPageProps {
+  initialMediaType?: MediaType | "";
+  title?: string;
+  description?: string;
+}
+
+export const HistoryPage: React.FC<HistoryPageProps> = ({
+  initialMediaType = "",
+  title = "Analysis History",
+  description = "Archive of all forensic investigations.",
+}) => {
   const [records, setRecords] = useState<AnalysisRecordSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -22,6 +33,7 @@ export const HistoryPage: React.FC = () => {
   const [classification, setClassification] = useState<ClassificationType | "">(
     ""
   );
+  const [mediaType, setMediaType] = useState<MediaType | "">(initialMediaType);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
 
@@ -31,6 +43,7 @@ export const HistoryPage: React.FC = () => {
       const filters: RecordFilters = {
         filename,
         classification,
+        media_type: mediaType,
         date_from: dateFrom,
         date_to: dateTo,
       };
@@ -42,11 +55,16 @@ export const HistoryPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [page, filename, classification, dateFrom, dateTo]);
+  }, [page, filename, classification, mediaType, dateFrom, dateTo]);
 
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  useEffect(() => {
+    setMediaType(initialMediaType);
+    setPage(1);
+  }, [initialMediaType]);
 
   const handleDelete = async (
     id: number,
@@ -74,11 +92,9 @@ export const HistoryPage: React.FC = () => {
         <div>
           <div className="fd-kicker mb-2">Archive</div>
           <h1 className="text-3xl font-semibold text-slate-100 mb-1 fd-title">
-            Analysis History
+            {title}
           </h1>
-          <p className="text-slate-400">
-            Archive of all forensic investigations.
-          </p>
+          <p className="text-slate-400">{description}</p>
         </div>
         <Button variant="secondary" onClick={fetchData}>
           <RefreshCw size={16} /> Refresh
@@ -105,6 +121,36 @@ export const HistoryPage: React.FC = () => {
                 className="w-full bg-slate-900 border border-slate-700 rounded-lg py-2 pl-10 pr-4 text-sm text-white focus:ring-2 focus:ring-cyan-500 focus:outline-none"
               />
             </div>
+          </div>
+
+          <div className="w-full md:w-48">
+            <label className="text-xs font-semibold text-slate-400 mb-1 block">
+              Media Type
+            </label>
+            <div className="relative">
+              <Filter
+                className="absolute left-3 top-2.5 text-slate-500"
+                size={16}
+              />
+              <select
+                value={mediaType}
+                onChange={(e) =>
+                  setMediaType(e.target.value as MediaType | "")
+                }
+                disabled={initialMediaType !== ""}
+                className="w-full bg-slate-900 border border-slate-700 rounded-lg py-2 pl-10 pr-4 text-sm text-white focus:ring-2 focus:ring-cyan-500 focus:outline-none appearance-none"
+              >
+                <option value="">All Media</option>
+                <option value="image">Images</option>
+                <option value="video">Videos</option>
+                <option value="audio">Audio</option>
+              </select>
+            </div>
+            {initialMediaType ? (
+              <div className="mt-1 text-[11px] text-slate-500">
+                This view is scoped to {initialMediaType} records.
+              </div>
+            ) : null}
           </div>
 
           <div className="w-full md:w-48">
