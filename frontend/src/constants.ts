@@ -7,9 +7,11 @@ export const DEFAULT_ADMIN_KEY = import.meta.env.VITE_ADMIN_KEY ?? "";
 
 export const API_ENDPOINTS = {
   DETECT: `${API_BASE_URL}/analysis/image`,
+  DETECT_AUDIO: `${API_BASE_URL}/analysis/audio`,
   DETECT_VIDEO: `${API_BASE_URL}/analysis/video`,
   DETECT_VIDEO_ASYNC: `${API_BASE_URL}/analysis/video/async`,
   RECORDS: `${API_BASE_URL}/analysis`,
+  AUDIO_RECORDS: `${API_BASE_URL}/analysis/audio`,
   VIDEO_RECORDS: `${API_BASE_URL}/analysis/video`,
   JOBS: `${API_BASE_URL}/jobs`,
   STATIC: `${API_BASE_URL}/static`,
@@ -71,6 +73,10 @@ export const fixPath = (p?: string | null): string | undefined => {
 
   if (clean.startsWith("jpeg_quality/")) {
     return `${API_BASE_URL}/jpeg_quality/${clean.slice("jpeg_quality/".length)}`;
+  }
+
+  if (clean.startsWith("audio_plots/")) {
+    return `${API_BASE_URL}/audio_plots/${clean.slice("audio_plots/".length)}`;
   }
 
   return `${API_BASE_URL}/${clean}`;
