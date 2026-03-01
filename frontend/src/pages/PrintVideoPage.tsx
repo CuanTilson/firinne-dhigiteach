@@ -4,6 +4,8 @@ import { getVideoById } from "../services/api";
 import type { VideoAnalysisDetail } from "../types";
 import { fixPath } from "../constants";
 import { ArrowLeft } from "lucide-react";
+import { AppliedSettingsPanel } from "../components/AppliedSettingsPanel";
+import { DecisionSummaryPanel } from "../components/DecisionSummaryPanel";
 
 export const PrintVideoPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -55,6 +57,16 @@ export const PrintVideoPage: React.FC = () => {
     videoMeta && typeof videoMeta.hashes === "object"
       ? (videoMeta.hashes as Record<string, string>)
       : null;
+  const audio = result.audio_analysis ?? null;
+  const audioMeta =
+    audio?.audio_metadata && typeof audio.audio_metadata === "object"
+      ? (audio.audio_metadata as Record<string, unknown>)
+      : null;
+  const audioFeatures =
+    audio?.audio_features && typeof audio.audio_features === "object"
+      ? (audio.audio_features as Record<string, unknown>)
+      : null;
+  const audioHashes = audio?.file_integrity ?? null;
   const handleGeneratePdf = () => {
     window.print();
   };
@@ -139,6 +151,138 @@ export const PrintVideoPage: React.FC = () => {
           </div>
         </section>
 
+        <section className="border border-slate-200 rounded-lg p-4 space-y-4">
+          <div className="text-xs uppercase tracking-wider text-slate-500">
+            Extracted Audio Evidence
+          </div>
+
+          {!audio ? (
+            <p className="text-sm text-slate-700">
+              No extracted-audio analysis was stored for this case.
+            </p>
+          ) : (
+            <>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                <div>
+                  <div className="text-slate-500 text-xs uppercase">Available</div>
+                  <div className="font-medium">{audio.available ? "Yes" : "No"}</div>
+                </div>
+                <div>
+                  <div className="text-slate-500 text-xs uppercase">Classification</div>
+                  <div className="font-medium">
+                    {audio.classification || "Unavailable"}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-slate-500 text-xs uppercase">Forensic Score</div>
+                  <div className="font-medium">
+                    {typeof audio.forensic_score === "number"
+                      ? audio.forensic_score.toFixed(3)
+                      : "Unavailable"}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-slate-500 text-xs uppercase">Hashes Match</div>
+                  <div className="font-medium">
+                    {typeof audioHashes?.hashes_match === "boolean"
+                      ? audioHashes.hashes_match
+                        ? "Yes"
+                        : "No"
+                      : "Unavailable"}
+                  </div>
+                </div>
+              </div>
+
+              {audio.error ? (
+                <div className="border border-amber-200 bg-amber-50 text-amber-900 rounded-lg p-3 text-sm">
+                  {audio.error}
+                </div>
+              ) : null}
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                <div>
+                  <div className="text-slate-500 text-xs uppercase">Duration</div>
+                  <div className="font-medium">
+                    {formatUnknown(audioMeta?.duration_seconds, "seconds")}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-slate-500 text-xs uppercase">Sample Rate</div>
+                  <div className="font-medium">
+                    {formatUnknown(audioMeta?.sample_rate_hz, "Hz")}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-slate-500 text-xs uppercase">Channels</div>
+                  <div className="font-medium">{formatUnknown(audioMeta?.channels)}</div>
+                </div>
+                <div>
+                  <div className="text-slate-500 text-xs uppercase">Peak Amplitude</div>
+                  <div className="font-medium">
+                    {formatUnknown(audioFeatures?.peak_amplitude)}
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+                {audio.waveform_path ? (
+                  <figure className="border border-slate-200 rounded-lg p-3">
+                    <figcaption className="text-xs uppercase text-slate-500 mb-2">
+                      Exhibit - Extracted Audio Waveform
+                    </figcaption>
+                    <img
+                      src={fixPath(audio.waveform_path)}
+                      alt="Extracted audio waveform"
+                      className="w-full object-contain"
+                      crossOrigin="anonymous"
+                    />
+                  </figure>
+                ) : null}
+
+                <div className="border border-slate-200 rounded-lg p-3">
+                  <div className="text-xs uppercase tracking-wider text-slate-500 mb-2">
+                    Audio Hashes
+                  </div>
+                  <div className="space-y-3 text-sm">
+                    <div>
+                      <div className="text-slate-500 text-xs uppercase">SHA-256</div>
+                      <div className="font-mono text-xs break-all">
+                        {audioHashes?.hashes_after?.sha256 ||
+                          audioHashes?.hashes_before?.sha256 ||
+                          "Unavailable"}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-slate-500 text-xs uppercase">MD5</div>
+                      <div className="font-mono text-xs break-all">
+                        {audioHashes?.hashes_after?.md5 ||
+                          audioHashes?.hashes_before?.md5 ||
+                          "Unavailable"}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+        </section>
+
+        <DecisionSummaryPanel
+          title="Decision Summary"
+          verdict={result.classification}
+          scoreLabel="Forensic Score"
+          scoreValue={result.forensic_score.toFixed(3)}
+          rationale={[
+            `Frame sample count: ${result.frame_count}`,
+            "Primary decision is based on sampled frame analysis.",
+            audio?.available
+              ? `Extracted audio classification: ${audio.classification || "Unavailable"}`
+              : "No extracted-audio evidence was available.",
+            hashes?.sha256 ? "Integrity hashes were recorded for the source video." : "Integrity hashes were not fully available.",
+          ]}
+          note="Visual and extracted-audio evidence streams should be interpreted together rather than as independent final determinations."
+        />
+
         <section className="border border-slate-200 rounded-lg p-4">
           <div className="text-xs uppercase tracking-wider text-slate-500 mb-3">
             Sample Frame Exhibits
@@ -163,6 +307,8 @@ export const PrintVideoPage: React.FC = () => {
           </div>
         </section>
 
+        <AppliedSettingsPanel settings={result.applied_settings} compact />
+
         <section className="text-[11px] text-slate-500 border-t border-slate-200 pt-3">
           This report is decision-support evidence and should be interpreted with
           contextual forensic review.
@@ -170,4 +316,14 @@ export const PrintVideoPage: React.FC = () => {
       </div>
     </div>
   );
+};
+
+const formatUnknown = (value: unknown, suffix?: string) => {
+  if (typeof value === "number") {
+    return suffix ? `${value} ${suffix}` : String(value);
+  }
+  if (typeof value === "string" && value.trim()) {
+    return suffix ? `${value} ${suffix}` : value;
+  }
+  return "Unavailable";
 };
