@@ -6,7 +6,7 @@ export type ClassificationType =
   | "uncertain"
   | "ai_generated_c2pa_flagged";
 
-export type MediaType = "image" | "video";
+export type MediaType = "image" | "video" | "audio";
 
 export interface AnalysisResult {
   id?: number;
@@ -32,6 +32,16 @@ export interface AnalysisResult {
   ml_prediction: {
     probability: number;
     label: string;
+    detector?: {
+      name: string;
+      display_name: string;
+      model_version: string;
+      dataset_version: string;
+      weights: {
+        sha256: string;
+        md5: string;
+      };
+    };
   };
 
   metadata_anomalies: {
@@ -119,6 +129,7 @@ export interface AnalysisResult {
   ela_heatmap: string | null;
 
   raw_metadata: Record<string, unknown>;
+  applied_settings?: Record<string, unknown>;
   created_at: string;
 }
 
@@ -148,11 +159,48 @@ export interface RecordFilters {
   classification?: ClassificationType | "";
   date_from?: string;
   date_to?: string;
+  media_type?: MediaType | "";
 }
 
 export interface VideoFrameResult extends AnalysisResult {
   frame_index: number;
   timestamp_sec: number;
+}
+
+export interface AudioAnalysisSummary {
+  available: boolean;
+  classification?: string | null;
+  forensic_score?: number | null;
+  error?: string | null;
+  saved_path?: string | null;
+  waveform_path?: string | null;
+  audio_metadata?: Record<string, unknown> | null;
+  audio_features?: Record<string, unknown> | null;
+  file_integrity?: {
+    hashes?: { sha256?: string; md5?: string };
+    hashes_before?: { sha256?: string; md5?: string };
+    hashes_after?: { sha256?: string; md5?: string };
+    hashes_match?: boolean;
+  } | null;
+}
+
+export interface AudioAnalysisDetail {
+  id: number;
+  filename?: string;
+  saved_path?: string | null;
+  waveform_path?: string | null;
+  forensic_score: number;
+  classification: ClassificationType;
+  audio_metadata?: Record<string, unknown> | null;
+  audio_features?: Record<string, unknown> | null;
+  file_integrity?: {
+    hashes?: { sha256?: string; md5?: string };
+    hashes_before?: { sha256?: string; md5?: string };
+    hashes_after?: { sha256?: string; md5?: string };
+    hashes_match?: boolean;
+  } | null;
+  applied_settings?: Record<string, unknown> | null;
+  created_at: string;
 }
 
 export interface VideoAnalysisDetail {
@@ -165,6 +213,8 @@ export interface VideoAnalysisDetail {
   frame_count: number;
   frames: VideoFrameResult[];
   video_metadata?: Record<string, unknown>;
+  audio_analysis?: AudioAnalysisSummary | null;
+  applied_settings?: Record<string, unknown> | null;
   created_at: string;
 }
 
@@ -195,6 +245,15 @@ export interface SettingsSnapshot {
     pipeline_version: string;
     model_version: string;
     dataset_version: string;
+    image_detector: string;
+    available_image_detectors?: Record<
+      string,
+      {
+        display_name: string;
+        available: boolean;
+        model_version: string;
+      }
+    >;
     weights: {
       sha256: string;
       md5: string;
@@ -216,8 +275,36 @@ export interface SettingsSnapshot {
     fusion_weights: Record<string, number>;
     video_max_duration_seconds: number;
     video_sample_frames: number;
+    audio_classification_bands: {
+      ai_likely_min: number;
+      real_likely_max: number;
+    };
     scene_cut_threshold: number;
     scene_cut_stride: number;
   };
-  toolchain: Record<string, string>;
+  paths: {
+    ffmpeg_path: string;
+  };
+  toolchain: Record<string, string | number | boolean>;
+}
+
+export interface SettingsUpdatePayload {
+  pipeline?: {
+    image_detector?: string;
+  };
+  thresholds?: {
+    classification_bands?: {
+      ai_likely_min: number;
+      real_likely_max: number;
+    };
+    audio_classification_bands?: {
+      ai_likely_min: number;
+      real_likely_max: number;
+    };
+    video_max_duration_seconds?: number;
+    video_sample_frames?: number;
+  };
+  paths?: {
+    ffmpeg_path?: string;
+  };
 }
