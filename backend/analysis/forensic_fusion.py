@@ -7,6 +7,8 @@ def fuse_forensic_scores(
     noise_score: float,
     qtable_score: float,
     sd_watermark_score: float,  # NEW
+    weights: dict | None = None,
+    classification_bands: dict | None = None,
 ) -> dict:
     """
     Weighted fusion of:
@@ -30,13 +32,14 @@ def fuse_forensic_scores(
 
     # --- Recommended weights ---
     # Total = 1.00
-    w_ml = 0.50
-    w_meta = 0.10
-    w_c2pa = 0.10
-    w_ela = 0.10
-    w_noise = 0.10
-    w_q = 0.05
-    w_sdwm = 0.02  # Optional invisible watermark is a weak supporting cue
+    weights = weights or {}
+    w_ml = float(weights.get("ml", 0.50))
+    w_meta = float(weights.get("metadata", 0.10))
+    w_c2pa = float(weights.get("c2pa", 0.10))
+    w_ela = float(weights.get("ela", 0.10))
+    w_noise = float(weights.get("noise", 0.10))
+    w_q = float(weights.get("jpeg", 0.05))
+    w_sdwm = float(weights.get("sd_watermark", 0.02))  # Optional invisible watermark is a weak supporting cue
 
     final_score = (
         (ml_prob * w_ml)
@@ -49,9 +52,12 @@ def fuse_forensic_scores(
     )
 
     # --- Classification bands ---
-    if final_score > 0.7:
+    classification_bands = classification_bands or {}
+    ai_likely_min = float(classification_bands.get("ai_likely_min", 0.7))
+    real_likely_max = float(classification_bands.get("real_likely_max", 0.3))
+    if final_score >= ai_likely_min:
         label = "likely_ai_generated"
-    elif final_score < 0.3:
+    elif final_score <= real_likely_max:
         label = "likely_real"
     else:
         label = "uncertain"
