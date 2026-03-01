@@ -1,12 +1,20 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { getVideoById } from "../services/api";
-import type { VideoAnalysisDetail, VideoFrameResult } from "../types";
+import type {
+  AudioAnalysisSummary,
+  VideoAnalysisDetail,
+  VideoFrameResult,
+} from "../types";
 import { AnalysisDashboard } from "../components/AnalysisDashboard";
 import { fixPath } from "../constants";
 import { ChevronLeft } from "lucide-react";
 import { CaseHeader } from "../components/CaseHeader";
 import { ChainOfCustody } from "../components/ChainOfCustody";
+import { AppliedSettingsPanel } from "../components/AppliedSettingsPanel";
+import { DecisionSummaryPanel } from "../components/DecisionSummaryPanel";
+import { EvidenceStatusStrip } from "../components/EvidenceStatusStrip";
+import { AnalysisProvenancePanel } from "../components/AnalysisProvenancePanel";
 
 export const VideoDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -70,6 +78,23 @@ export const VideoDetailPage: React.FC = () => {
     hashes && typeof hashes.hashes === "object"
       ? (hashes.hashes as Record<string, string>)
       : null;
+  const audio = result.audio_analysis ?? null;
+  const audioHashes =
+    audio?.file_integrity && typeof audio.file_integrity === "object"
+      ? audio.file_integrity
+      : null;
+  const audioMeta =
+    audio?.audio_metadata && typeof audio.audio_metadata === "object"
+      ? (audio.audio_metadata as Record<string, unknown>)
+      : null;
+  const audioFeatures =
+    audio?.audio_features && typeof audio.audio_features === "object"
+      ? (audio.audio_features as Record<string, unknown>)
+      : null;
+  const imageDetector =
+    hashes && typeof hashes.image_detector === "object"
+      ? (hashes.image_detector as Record<string, unknown>)
+      : null;
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8 space-y-6">
@@ -103,7 +128,52 @@ export const VideoDetailPage: React.FC = () => {
         steps={[
           { label: "Upload received", timestamp: result.created_at, status: "complete" },
           { label: "Frame sampling completed", timestamp: result.created_at, status: "complete" },
+          {
+            label: audio?.available ? "Audio extraction completed" : "Audio extraction attempted",
+            timestamp: result.created_at,
+            status: audio?.available ? "complete" : "pending",
+          },
           { label: "Analysis completed", timestamp: result.created_at, status: "complete" },
+        ]}
+      />
+
+      <EvidenceStatusStrip
+        items={[
+          {
+            label: "Visual Verdict",
+            status: result.classification,
+            tone: result.forensic_score >= 0.7 ? "warn" : "neutral",
+            detail: `Score ${result.forensic_score.toFixed(3)}`,
+          },
+          {
+            label: "Frame Sampling",
+            status: `${result.frame_count} frames`,
+            tone: result.frame_count > 0 ? "good" : "bad",
+            detail: selectedFrame
+              ? `Current frame ${selectedFrame.frame_index}`
+              : "No frame selected",
+          },
+          {
+            label: "Extracted Audio",
+            status: audio?.available
+              ? audio.classification ?? "Available"
+              : "Unavailable",
+            tone: audio?.error ? "bad" : audio?.available ? "good" : "warn",
+            detail:
+              audio?.error ||
+              (typeof audio?.forensic_score === "number"
+                ? `Score ${audio.forensic_score.toFixed(3)}`
+                : undefined),
+          },
+          {
+            label: "Video Integrity",
+            status: hashesCurrent?.sha256 ? "Hashes recorded" : "Hashes unavailable",
+            tone: hashesCurrent?.sha256 ? "good" : "warn",
+            detail:
+              hashesBefore?.sha256 && hashesAfter?.sha256
+                ? "Before/after hashes stored"
+                : undefined,
+          },
         ]}
       />
 
@@ -166,6 +236,152 @@ export const VideoDetailPage: React.FC = () => {
         </div>
       </div>
 
+      <div className="fd-card p-4">
+        <div className="fd-section-title mb-3">Extracted Audio Evidence</div>
+        {!audio ? (
+          <div className="text-sm text-slate-400">
+            No extracted-audio analysis was stored for this case.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 xl:grid-cols-[1.1fr_0.9fr] gap-6">
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                <AudioField label="Available" value={audio.available ? "Yes" : "No"} />
+                <AudioField
+                  label="Classification"
+                  value={audio.classification ?? "Unavailable"}
+                />
+                <AudioField
+                  label="Forensic score"
+                  value={
+                    typeof audio.forensic_score === "number"
+                      ? audio.forensic_score.toFixed(3)
+                      : "Unavailable"
+                  }
+                />
+                <AudioField
+                  label="Hashes match"
+                  value={
+                    typeof audioHashes?.hashes_match === "boolean"
+                      ? audioHashes.hashes_match
+                        ? "Yes"
+                        : "No"
+                      : "Unavailable"
+                  }
+                />
+              </div>
+
+              {audio.error ? (
+                <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
+                  {audio.error}
+                </div>
+              ) : null}
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                <AudioField
+                  label="Duration"
+                  value={formatUnknown(audioMeta?.duration_seconds, "seconds")}
+                />
+                <AudioField
+                  label="Sample rate"
+                  value={formatUnknown(audioMeta?.sample_rate_hz, "Hz")}
+                />
+                <AudioField
+                  label="Channels"
+                  value={formatUnknown(audioMeta?.channels)}
+                />
+                <AudioField
+                  label="Bit depth"
+                  value={formatUnknown(audioMeta?.sample_width_bits, "bits")}
+                />
+                <AudioField
+                  label="Peak amplitude"
+                  value={formatUnknown(audioFeatures?.peak_amplitude)}
+                />
+                <AudioField
+                  label="Clipping ratio"
+                  value={formatUnknown(audioFeatures?.clipping_ratio)}
+                />
+              </div>
+
+              {(audioHashes?.hashes_after?.sha256 || audioHashes?.hashes_before?.sha256) && (
+                <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3 text-xs">
+                  <div className="text-slate-500 uppercase tracking-wider mb-2">
+                    Extracted Audio Hashes
+                  </div>
+                  <div className="space-y-2 text-slate-300">
+                    <div>
+                      <div className="text-slate-500">SHA-256</div>
+                      <div className="font-mono break-all">
+                        {audioHashes?.hashes_after?.sha256 ||
+                          audioHashes?.hashes_before?.sha256 ||
+                          "Unavailable"}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-slate-500">MD5</div>
+                      <div className="font-mono break-all">
+                        {audioHashes?.hashes_after?.md5 ||
+                          audioHashes?.hashes_before?.md5 ||
+                          "Unavailable"}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-4">
+              {audio.waveform_path ? (
+                <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
+                  <div className="text-xs uppercase tracking-wider text-slate-500 mb-2">
+                    Waveform Preview
+                  </div>
+                  <img
+                    src={fixPath(audio.waveform_path)}
+                    alt="Extracted audio waveform"
+                    className="w-full rounded border border-slate-800 bg-slate-900"
+                  />
+                </div>
+              ) : null}
+
+              <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
+                <div className="text-xs uppercase tracking-wider text-slate-500 mb-2">
+                  Audio Metadata
+                </div>
+                <pre className="text-xs text-slate-300 whitespace-pre-wrap break-words">
+                  {JSON.stringify(audioMeta ?? {}, null, 2)}
+                </pre>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <AppliedSettingsPanel settings={result.applied_settings} />
+
+      <AnalysisProvenancePanel
+        detector={imageDetector}
+        fusionMode="rule_based_forensic_fusion"
+      />
+
+      <DecisionSummaryPanel
+        verdict={result.classification}
+        scoreLabel="Visual Aggregate Score"
+        scoreValue={result.forensic_score.toFixed(3)}
+        rationale={[
+          `Frame count analysed: ${result.frame_count}`,
+          `Selected frame score: ${selectedFrame ? selectedFrame.forensic_score.toFixed(3) : "Unavailable"}`,
+          `Extracted audio classification: ${audio?.classification ?? "Unavailable"}`,
+          `Extracted audio score: ${
+            typeof audio?.forensic_score === "number"
+              ? audio.forensic_score.toFixed(3)
+              : "Unavailable"
+          }`,
+        ]}
+        note="Current video decisions are based on sampled frame analysis, with extracted audio triage shown as a parallel evidence stream."
+      />
+
       <div>
         {selectedFrame ? (
           <AnalysisDashboard result={selectedFrame} />
@@ -178,3 +394,22 @@ export const VideoDetailPage: React.FC = () => {
     </div>
   );
 };
+
+const AudioField = ({ label, value }: { label: string; value: string }) => (
+  <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
+    <div className="text-xs uppercase tracking-wider text-slate-500">{label}</div>
+    <div className="mt-1 text-slate-200">{value}</div>
+  </div>
+);
+
+const formatUnknown = (value: AudioValue, suffix?: string) => {
+  if (typeof value === "number") {
+    return suffix ? `${value} ${suffix}` : String(value);
+  }
+  if (typeof value === "string" && value.trim()) {
+    return suffix ? `${value} ${suffix}` : value;
+  }
+  return "Unavailable";
+};
+
+type AudioValue = AudioAnalysisSummary["forensic_score"] | string | unknown;
