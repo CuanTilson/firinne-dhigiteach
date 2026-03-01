@@ -5,6 +5,9 @@ import type { AnalysisResult } from "../types";
 import { fixPath } from "../constants";
 import { sanitizeMetadata } from "../utils/metadata";
 import { ArrowLeft } from "lucide-react";
+import { AppliedSettingsPanel } from "../components/AppliedSettingsPanel";
+import { DecisionSummaryPanel } from "../components/DecisionSummaryPanel";
+import { AnalysisProvenancePanel } from "../components/AnalysisProvenancePanel";
 
 export const PrintDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -58,6 +61,23 @@ export const PrintDetailPage: React.FC = () => {
     result.file_integrity?.hashes?.md5 ||
     "Not available";
   const findings = result.metadata_anomalies?.findings ?? [];
+  const mlProbability =
+    typeof result.ml_prediction?.probability === "number"
+      ? result.ml_prediction.probability.toFixed(3)
+      : "Unavailable";
+  const detector =
+    result.ml_prediction?.detector && typeof result.ml_prediction.detector === "object"
+      ? result.ml_prediction.detector
+      : null;
+  const fusionMode =
+    result.forensic_score_json &&
+    typeof result.forensic_score_json === "object" &&
+    typeof result.forensic_score_json.provenance === "object"
+      ? String(
+          (result.forensic_score_json.provenance as Record<string, unknown>)
+            .fusion_mode || ""
+        )
+      : null;
 
   const qualityBadges: string[] = [];
   if (result.c2pa?.has_c2pa) qualityBadges.push("C2PA Present");
@@ -176,6 +196,26 @@ export const PrintDetailPage: React.FC = () => {
           )}
         </section>
 
+        <DecisionSummaryPanel
+          title="Decision Summary"
+          verdict={result.classification}
+          scoreLabel="Forensic Score"
+          scoreValue={result.forensic_score.toFixed(3)}
+          rationale={[
+            `ML probability: ${mlProbability}`,
+            `Metadata findings flagged: ${findings.length}`,
+            result.c2pa?.has_c2pa ? "C2PA provenance is present." : "No C2PA provenance was detected.",
+            qualityBadges[0] || "No dominant quality flags were raised.",
+          ]}
+          note="The current decision reflects the present scoring pipeline and should be reviewed alongside the exhibits and metadata appendix."
+        />
+
+        <AnalysisProvenancePanel
+          detector={detector}
+          fusionMode={fusionMode}
+          compact
+        />
+
         <section className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <div className="text-xs uppercase tracking-wider text-slate-500 mb-2">
@@ -255,6 +295,8 @@ export const PrintDetailPage: React.FC = () => {
             Large binary fields are omitted for readability.
           </div>
         </section>
+
+        <AppliedSettingsPanel settings={result.applied_settings} compact />
 
         <section className="text-[11px] text-slate-500 border-t border-slate-200 pt-3">
           This report is decision-support evidence and should be interpreted with
