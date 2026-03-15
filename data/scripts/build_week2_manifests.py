@@ -38,52 +38,42 @@ def parse_args() -> argparse.Namespace:
         default=0,
         help="0 means no cap. Otherwise cap rows per class for GenImage.",
     )
+    parser.add_argument(
+        "--max-per-generator-per-class",
+        type=int,
+        default=0,
+        help=(
+            "0 means no per-generator cap. Otherwise cap rows per label within each "
+            "generator before the final split."
+        ),
+    )
     parser.add_argument("--output-dir", type=Path, default=Path("data/manifests"))
     return parser.parse_args()
 
 
 def iter_images(root: Path) -> Iterable[Path]:
-    # Faster than rglob("*") + is_file() checks on very large folders.
-    seen: set[str] = set()
-    for ext in IMAGE_EXTS:
-        for p in root.rglob(f"*{ext}"):
-            key = str(p)
-            if key in seen:
+    for dirpath, _, filenames in os.walk(root):
+        for filename in filenames:
+            if Path(filename).suffix.lower() not in IMAGE_EXTS:
                 continue
-            seen.add(key)
-            yield p
-        for p in root.rglob(f"*{ext.upper()}"):
-            key = str(p)
-            if key in seen:
-                continue
-            seen.add(key)
-            yield p
+            yield Path(dirpath) / filename
 
 
 def collect_genimage_rows(
-    root: Path, generators: list[str], max_per_class: int = 0
+    root: Path,
+    generators: list[str],
+    max_per_class: int = 0,
+    max_per_generator_per_class: int = 0,
 ) -> list[dict]:
     rows: list[dict] = []
-    class_counts = {"real": 0, "ai": 0}
-
-    def reached_cap() -> bool:
-        if max_per_class <= 0:
-            return False
-        return class_counts["real"] >= max_per_class and class_counts["ai"] >= max_per_class
-
-    def can_take(label: str) -> bool:
-        if max_per_class <= 0:
-            return True
-        return class_counts[label] < max_per_class
 
     for gen in generators:
-        if reached_cap():
-            break
         gen_dir = root / gen
         if not gen_dir.exists():
             print(f"[WARN] Missing generator folder: {gen_dir}")
             continue
         print(f"[INFO] Scanning generator: {gen}")
+        generator_class_counts = {"real": 0, "ai": 0}
         split_bases = list(gen_dir.glob("*/train"))
         if (gen_dir / "train").exists():
             split_bases.append(gen_dir / "train")
@@ -103,13 +93,19 @@ def collect_genimage_rows(
             for split_name in ("train", "val"):
                 split_dir = base_root / split_name
                 for cls_name, label in (("ai", "ai"), ("nature", "real")):
-                    if not can_take(label):
+                    if (
+                        max_per_generator_per_class > 0
+                        and generator_class_counts[label] >= max_per_generator_per_class
+                    ):
                         continue
                     cls_dir = split_dir / cls_name
                     if not cls_dir.exists():
                         continue
                     for image_path in iter_images(cls_dir):
-                        if not can_take(label):
+                        if (
+                            max_per_generator_per_class > 0
+                            and generator_class_counts[label] >= max_per_generator_per_class
+                        ):
                             break
                         rows.append(
                             {
@@ -119,14 +115,10 @@ def collect_genimage_rows(
                                 "generator": gen,
                             }
                         )
-                        class_counts[label] += 1
+                        generator_class_counts[label] += 1
                     print(
-                        f"[INFO] {gen}/{split_name}/{cls_name}: collected {class_counts[label]} {label}"
+                        f"[INFO] {gen}/{split_name}/{cls_name}: collected {generator_class_counts[label]} {label}"
                     )
-                if reached_cap():
-                    break
-            if reached_cap():
-                break
     return rows
 
 
@@ -186,22 +178,14 @@ def resolve_image_path(rel: str, image_root: Path | None, csv_parent: Path) -> P
     if rel_path.is_absolute():
         return rel_path
 
-    candidates: list[Path] = []
     if image_root is not None:
-        candidates.append(image_root / rel_path)
-        candidates.append(image_root / rel_path.name)
-        # Handles CSV paths like train_data/foo.jpg when image_root already ends with train_data
+        direct_candidate = image_root / rel_path
+        # Handles CSV paths like train_data/foo.jpg when image_root already ends with train_data.
         rel_parts = rel_path.parts
         if rel_parts and image_root.name.lower() == rel_parts[0].lower():
-            candidates.append(image_root.parent / rel_path)
-    candidates.append(csv_parent / rel_path)
-    candidates.append(csv_parent / rel_path.name)
-
-    for candidate in candidates:
-        if candidate.exists():
-            return candidate
-    # Fall back to first candidate for traceability if nothing exists yet.
-    return candidates[0]
+            return image_root.parent / rel_path
+        return direct_candidate
+    return csv_parent / rel_path
 
 
 def build_kaggle_rows(csv_path: Path, image_root: Path | None, split: str) -> list[dict]:
@@ -273,7 +257,10 @@ def main() -> None:
         raise ValueError("train/val/test ratios must sum to 1.0")
 
     gen_rows = collect_genimage_rows(
-        args.genimage_root, args.generators, args.max_per_class
+        args.genimage_root,
+        args.generators,
+        args.max_per_class,
+        args.max_per_generator_per_class,
     )
     # Backward-compatible cap pass in case max_per_class is zero during collection.
     gen_rows = apply_cap_per_class(gen_rows, args.max_per_class, args.seed)
@@ -304,6 +291,7 @@ def main() -> None:
             "val_ratio": args.val_ratio,
             "test_ratio": args.test_ratio,
             "max_per_class": args.max_per_class,
+            "max_per_generator_per_class": args.max_per_generator_per_class,
             "generators": args.generators,
         },
     }
