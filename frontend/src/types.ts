@@ -123,6 +123,8 @@ export interface AnalysisResult {
     final_score: number;
     classification: ClassificationType;
     override: boolean;
+    provenance?: Record<string, unknown>;
+    decision_path?: Record<string, unknown>;
   };
 
   gradcam_heatmap: string | null;
