@@ -122,7 +122,6 @@ export const PrintAudioPage: React.FC = () => {
               src={fixPath(result.waveform_path)}
               alt="Waveform preview"
               className="w-full object-contain"
-              crossOrigin="anonymous"
             />
           </section>
         ) : null}
