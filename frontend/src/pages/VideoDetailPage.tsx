@@ -295,12 +295,20 @@ export const VideoDetailPage: React.FC = () => {
                   value={formatUnknown(audioMeta?.sample_width_bits, "bits")}
                 />
                 <AudioField
-                  label="Peak amplitude"
-                  value={formatUnknown(audioFeatures?.peak_amplitude)}
+                  label="Peak level"
+                  value={formatUnknown(audioFeatures?.peak_level)}
                 />
                 <AudioField
                   label="Clipping ratio"
                   value={formatUnknown(audioFeatures?.clipping_ratio)}
+                />
+                <AudioField
+                  label="Zero crossing rate"
+                  value={formatUnknown(audioFeatures?.zero_crossing_rate)}
+                />
+                <AudioField
+                  label="Spectral flatness"
+                  value={formatUnknown(audioFeatures?.spectral_flatness)}
                 />
               </div>
 
