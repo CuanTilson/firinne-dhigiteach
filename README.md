@@ -8,6 +8,7 @@ The system currently supports:
 - backend audio-analysis scaffolding for standalone audio
 - case history, audit log, settings, and print/report views
 - reproducible Model A training from CSV manifests
+- runtime-selectable comparison detector path for the self-trained `Model A`
 
 The project is being delivered in weekly stages for a final-year dissertation, with traceability and reproducibility treated as first-class requirements.
 
@@ -20,11 +21,12 @@ Implemented now:
 - forensic signals including GradCAM, ELA, metadata checks, C2PA, JPEG analysis, and noise residuals
 - Week 2 data pipeline for reproducible image-model training
 - Week 3 Model A baseline training scaffold and first baseline run
+- Week 5 corrected broader-data `Model A v2.1` experiment and coverage audit
 
 Planned next:
-- audio extraction from uploaded video
-- explicit decision-path presentation for rule-based vs learned-fusion outputs
 - broader evaluation and final report packaging
+- backend and route-level testing hardening
+- final report and PDF presentation polish
 
 ## Repository Layout
 
@@ -89,6 +91,34 @@ The backend still depends on the CNNDetection vendor weights for the current for
 Expected path:
 - `vendor/CNNDetection/weights/blur_jpg_prob0.5.pth`
 
+The runtime comparison path for the self-trained detector now defaults to the corrected broader-data run:
+- `artifacts/model_a_v2_1_gpu/model_a_best.pt`
+- `artifacts/model_a_v2_1_gpu/run_manifest.json`
+
+This does not replace the production rule-based path. It uses the stronger corrected `Model A`
+comparison checkpoint while keeping the main production decision path unchanged.
+
+## Audio and FFmpeg
+
+`ffmpeg` is used for media decoding and extraction, not for the core scoring logic.
+
+Current behavior:
+- `.wav` uploads:
+  - deep waveform analysis without `ffmpeg`
+- `.mp3`, `.m4a`, `.flac` uploads:
+  - with `ffmpeg`: decoded to mono 16 kHz WAV and analysed with the deeper waveform path
+  - without `ffmpeg`: metadata-first triage only
+- video uploads:
+  - extracted-audio analysis requires `ffmpeg`
+
+The backend resolves `ffmpeg` in this order:
+1. settings page override
+2. `FD_FFMPEG_PATH`
+3. system `PATH`
+4. common Windows install locations
+
+If auto-discovery fails, set the full `ffmpeg.exe` path in the settings page.
+
 If you clone the project fresh, initialize submodules first:
 
 ```powershell
@@ -115,4 +145,6 @@ Important supporting docs:
 
 - Raw datasets should stay outside the repository.
 - Training artifacts should be written to `artifacts/` and not committed.
-- The current baseline shows strong in-domain performance and weak external generalization, which is an important project finding rather than a failure.
+- The original Model A baseline showed strong in-domain performance and weak external generalization.
+- The corrected broader-data `Model A v2.1` run improved external performance substantially and
+  is now the preferred self-trained comparison checkpoint.
