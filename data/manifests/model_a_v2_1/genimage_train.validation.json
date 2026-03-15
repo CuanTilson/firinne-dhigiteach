@@ -1,0 +1,17 @@
+{
+  "input_manifest": "data\\manifests\\model_a_v2_1\\genimage_train.csv",
+  "output_manifest": "data\\manifests\\model_a_v2_1\\genimage_train.cleaned.csv",
+  "min_width": 256,
+  "min_height": 256,
+  "total_rows": 2800,
+  "kept_rows": 2647,
+  "dropped_rows": 153,
+  "drop_reasons": {
+    "ok": 2647,
+    "too_small": 153
+  },
+  "kept_label_distribution": {
+    "real": 1247,
+    "ai": 1400
+  }
+}
