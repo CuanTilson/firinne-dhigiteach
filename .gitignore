@@ -249,6 +249,8 @@ backend/storage/thumbnails/*
 backend/storage/video_frames/*
 backend/storage/noise/*
 backend/storage/jpeg_quality/*
+backend/storage/audio_extracted/
+backend/storage/audio_plots/
 
 # Keep directory structure
 !backend/storage/uploaded/.gitkeep
