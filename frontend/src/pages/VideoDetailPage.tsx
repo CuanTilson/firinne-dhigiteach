@@ -8,13 +8,13 @@ import type {
 } from "../types";
 import { AnalysisDashboard } from "../components/AnalysisDashboard";
 import { fixPath } from "../constants";
-import { ChevronLeft } from "lucide-react";
 import { CaseHeader } from "../components/CaseHeader";
 import { ChainOfCustody } from "../components/ChainOfCustody";
 import { AppliedSettingsPanel } from "../components/AppliedSettingsPanel";
 import { DecisionSummaryPanel } from "../components/DecisionSummaryPanel";
 import { EvidenceStatusStrip } from "../components/EvidenceStatusStrip";
 import { AnalysisProvenancePanel } from "../components/AnalysisProvenancePanel";
+import { CasePageScaffold } from "../components/CasePageScaffold";
 
 export const VideoDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -97,113 +97,107 @@ export const VideoDetailPage: React.FC = () => {
       : null;
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-8 space-y-6">
-      <div className="flex items-center gap-4">
-        <Link
-          to="/history"
-          className="p-2 bg-slate-900 rounded-full hover:bg-slate-800 text-slate-300 transition-colors border border-slate-800"
-        >
-          <ChevronLeft size={20} />
-        </Link>
-        <span className="text-sm text-slate-400">Back to History</span>
-      </div>
-
-      <CaseHeader
-        title="Video Analysis"
-        caseId={id || ""}
-        filename={result.filename}
-        createdAt={result.created_at}
-        printUrl={`#/print/videos/${id}`}
-        hashes={{
-          sha256: hashesCurrent?.sha256,
-          md5: hashesCurrent?.md5,
-          sha256_before: hashesBefore?.sha256,
-          sha256_after: hashesAfter?.sha256,
-          md5_before: hashesBefore?.md5,
-          md5_after: hashesAfter?.md5,
-        }}
-      />
-
-      <ChainOfCustody
-        steps={[
-          { label: "Upload received", timestamp: result.created_at, status: "complete" },
-          { label: "Frame sampling completed", timestamp: result.created_at, status: "complete" },
-          {
-            label: audio?.available ? "Audio extraction completed" : "Audio extraction attempted",
-            timestamp: result.created_at,
-            status: audio?.available ? "complete" : "pending",
-          },
-          { label: "Analysis completed", timestamp: result.created_at, status: "complete" },
-        ]}
-      />
-
-      <EvidenceStatusStrip
-        items={[
-          {
-            label: "Visual Verdict",
-            status: result.classification,
-            tone: result.forensic_score >= 0.7 ? "warn" : "neutral",
-            detail: `Score ${result.forensic_score.toFixed(3)}`,
-          },
-          {
-            label: "Frame Sampling",
-            status: `${result.frame_count} frames`,
-            tone: result.frame_count > 0 ? "good" : "bad",
-            detail: selectedFrame
-              ? `Current frame ${selectedFrame.frame_index}`
-              : "No frame selected",
-          },
-          {
-            label: "Extracted Audio",
-            status: audio?.available
-              ? audio.classification ?? "Available"
-              : "Unavailable",
-            tone: audio?.error ? "bad" : audio?.available ? "good" : "warn",
-            detail:
-              audio?.error ||
-              (typeof audio?.forensic_score === "number"
-                ? `Score ${audio.forensic_score.toFixed(3)}`
-                : undefined),
-          },
-          {
-            label: "Video Integrity",
-            status: hashesCurrent?.sha256 ? "Hashes recorded" : "Hashes unavailable",
-            tone: hashesCurrent?.sha256 ? "good" : "warn",
-            detail:
-              hashesBefore?.sha256 && hashesAfter?.sha256
-                ? "Before/after hashes stored"
-                : undefined,
-          },
-        ]}
-      />
-
+    <CasePageScaffold
+      backTo="/history"
+      backLabel="Back to History"
+      header={
+        <CaseHeader
+          title="Video Analysis"
+          caseId={id || ""}
+          filename={result.filename}
+          createdAt={result.created_at}
+          printUrl={`#/print/videos/${id}`}
+          hashes={{
+            sha256: hashesCurrent?.sha256,
+            md5: hashesCurrent?.md5,
+            sha256_before: hashesBefore?.sha256,
+            sha256_after: hashesAfter?.sha256,
+            md5_before: hashesBefore?.md5,
+            md5_after: hashesAfter?.md5,
+          }}
+        />
+      }
+      statusStrip={
+        <EvidenceStatusStrip
+          items={[
+            {
+              label: "Visual Verdict",
+              status: result.classification,
+              tone: result.forensic_score >= 0.7 ? "warn" : "neutral",
+              detail: `Score ${result.forensic_score.toFixed(3)}`,
+            },
+            {
+              label: "Frame Sampling",
+              status: `${result.frame_count} frames`,
+              tone: result.frame_count > 0 ? "good" : "bad",
+              detail: selectedFrame
+                ? `Current frame ${selectedFrame.frame_index}`
+                : "No frame selected",
+            },
+            {
+              label: "Extracted Audio",
+              status: audio?.available
+                ? audio.classification ?? "Available"
+                : "Unavailable",
+              tone: audio?.error ? "bad" : audio?.available ? "good" : "warn",
+              detail:
+                audio?.error ||
+                (typeof audio?.forensic_score === "number"
+                  ? `Score ${audio.forensic_score.toFixed(3)}`
+                  : undefined),
+            },
+            {
+              label: "Video Integrity",
+              status: hashesCurrent?.sha256 ? "Hashes recorded" : "Hashes unavailable",
+              tone: hashesCurrent?.sha256 ? "good" : "warn",
+              detail:
+                hashesBefore?.sha256 && hashesAfter?.sha256
+                  ? "Before/after hashes stored"
+                  : undefined,
+            },
+          ]}
+        />
+      }
+      sidebar={
+        <>
+          <DecisionSummaryPanel
+            verdict={result.classification}
+            scoreLabel="Visual Aggregate Score"
+            scoreValue={result.forensic_score.toFixed(3)}
+            rationale={[
+              `Frame count analysed: ${result.frame_count}`,
+              `Selected frame score: ${selectedFrame ? selectedFrame.forensic_score.toFixed(3) : "Unavailable"}`,
+              `Extracted audio classification: ${audio?.classification ?? "Unavailable"}`,
+              `Extracted audio score: ${
+                typeof audio?.forensic_score === "number"
+                  ? audio.forensic_score.toFixed(3)
+                  : "Unavailable"
+              }`,
+            ]}
+            note="Current video decisions are based on sampled frame analysis, with extracted audio triage shown as a parallel evidence stream."
+          />
+          <AnalysisProvenancePanel
+            detector={imageDetector}
+            fusionMode="rule_based_forensic_fusion"
+          />
+          <ChainOfCustody
+            steps={[
+              { label: "Upload received", timestamp: result.created_at, status: "complete" },
+              { label: "Frame sampling completed", timestamp: result.created_at, status: "complete" },
+              {
+                label: audio?.available ? "Audio extraction completed" : "Audio extraction attempted",
+                timestamp: result.created_at,
+                status: audio?.available ? "complete" : "pending",
+              },
+              { label: "Analysis completed", timestamp: result.created_at, status: "complete" },
+            ]}
+          />
+          <AppliedSettingsPanel settings={result.applied_settings} />
+        </>
+      }
+    >
       <div className="fd-card p-4">
-        <div className="flex flex-wrap gap-4 text-sm text-slate-300">
-          <div>
-            <span className="text-slate-500">Filename:</span>{" "}
-            <span
-              className="truncate inline-block max-w-[260px] align-bottom"
-              title={result.filename}
-            >
-              {result.filename}
-            </span>
-          </div>
-          <div>
-            <span className="text-slate-500">Frames:</span> {result.frame_count}
-          </div>
-          <div>
-            <span className="text-slate-500">Score:</span>{" "}
-            {result.forensic_score.toFixed(3)}
-          </div>
-          <div>
-            <span className="text-slate-500">Classification:</span>{" "}
-            {result.classification}
-          </div>
-        </div>
-      </div>
-
-      <div className="fd-card p-4">
-        <div className="fd-section-title mb-3">Frames</div>
+        <div className="fd-section-title mb-3">Frame Strip</div>
         <div className="flex gap-3 overflow-x-auto pb-2">
           {result.frames.map((frame, idx) => (
             <button
@@ -224,16 +218,21 @@ export const VideoDetailPage: React.FC = () => {
               </div>
               <div className="text-xs text-slate-300">
                 <div>Frame {frame.frame_index}</div>
-                <div className="text-slate-500">
-                  {frame.timestamp_sec.toFixed(2)}s
-                </div>
-                <div className="text-slate-400">
-                  Score {frame.forensic_score.toFixed(2)}
-                </div>
+                <div className="text-slate-500">{frame.timestamp_sec.toFixed(2)}s</div>
+                <div className="text-slate-400">Score {frame.forensic_score.toFixed(2)}</div>
               </div>
             </button>
           ))}
         </div>
+      </div>
+
+      <div className="fd-card p-4">
+        <div className="fd-section-title mb-3">Selected Frame Analysis</div>
+        {selectedFrame ? (
+          <AnalysisDashboard result={selectedFrame} />
+        ) : (
+          <div className="text-slate-400">No frames available for analysis.</div>
+        )}
       </div>
 
       <div className="fd-card p-4">
@@ -243,14 +242,11 @@ export const VideoDetailPage: React.FC = () => {
             No extracted-audio analysis was stored for this case.
           </div>
         ) : (
-          <div className="grid grid-cols-1 xl:grid-cols-[1.1fr_0.9fr] gap-6">
+          <div className="grid grid-cols-1 xl:grid-cols-[1.05fr_0.95fr] gap-6">
             <div className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                 <AudioField label="Available" value={audio.available ? "Yes" : "No"} />
-                <AudioField
-                  label="Classification"
-                  value={audio.classification ?? "Unavailable"}
-                />
+                <AudioField label="Classification" value={audio.classification ?? "Unavailable"} />
                 <AudioField
                   label="Forensic score"
                   value={
@@ -269,6 +265,15 @@ export const VideoDetailPage: React.FC = () => {
                       : "Unavailable"
                   }
                 />
+                <AudioField label="Analysis mode" value={formatUnknown(audioFeatures?.analysis_mode)} />
+                <AudioField label="Duration" value={formatUnknown(audioMeta?.duration_seconds, "seconds")} />
+                <AudioField label="Sample rate" value={formatUnknown(audioMeta?.sample_rate_hz, "Hz")} />
+                <AudioField label="Channels" value={formatUnknown(audioMeta?.channels)} />
+                <AudioField label="Bit depth" value={formatUnknown(audioMeta?.sample_width_bits, "bits")} />
+                <AudioField label="Peak level" value={formatUnknown(audioFeatures?.peak_level)} />
+                <AudioField label="Clipping ratio" value={formatUnknown(audioFeatures?.clipping_ratio)} />
+                <AudioField label="Zero crossing rate" value={formatUnknown(audioFeatures?.zero_crossing_rate)} />
+                <AudioField label="Spectral flatness" value={formatUnknown(audioFeatures?.spectral_flatness)} />
               </div>
 
               {audio.error ? (
@@ -276,41 +281,6 @@ export const VideoDetailPage: React.FC = () => {
                   {audio.error}
                 </div>
               ) : null}
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                <AudioField
-                  label="Duration"
-                  value={formatUnknown(audioMeta?.duration_seconds, "seconds")}
-                />
-                <AudioField
-                  label="Sample rate"
-                  value={formatUnknown(audioMeta?.sample_rate_hz, "Hz")}
-                />
-                <AudioField
-                  label="Channels"
-                  value={formatUnknown(audioMeta?.channels)}
-                />
-                <AudioField
-                  label="Bit depth"
-                  value={formatUnknown(audioMeta?.sample_width_bits, "bits")}
-                />
-                <AudioField
-                  label="Peak level"
-                  value={formatUnknown(audioFeatures?.peak_level)}
-                />
-                <AudioField
-                  label="Clipping ratio"
-                  value={formatUnknown(audioFeatures?.clipping_ratio)}
-                />
-                <AudioField
-                  label="Zero crossing rate"
-                  value={formatUnknown(audioFeatures?.zero_crossing_rate)}
-                />
-                <AudioField
-                  label="Spectral flatness"
-                  value={formatUnknown(audioFeatures?.spectral_flatness)}
-                />
-              </div>
 
               {(audioHashes?.hashes_after?.sha256 || audioHashes?.hashes_before?.sha256) && (
                 <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3 text-xs">
@@ -365,41 +335,7 @@ export const VideoDetailPage: React.FC = () => {
           </div>
         )}
       </div>
-
-      <AppliedSettingsPanel settings={result.applied_settings} />
-
-      <AnalysisProvenancePanel
-        detector={imageDetector}
-        fusionMode="rule_based_forensic_fusion"
-      />
-
-      <DecisionSummaryPanel
-        verdict={result.classification}
-        scoreLabel="Visual Aggregate Score"
-        scoreValue={result.forensic_score.toFixed(3)}
-        rationale={[
-          `Frame count analysed: ${result.frame_count}`,
-          `Selected frame score: ${selectedFrame ? selectedFrame.forensic_score.toFixed(3) : "Unavailable"}`,
-          `Extracted audio classification: ${audio?.classification ?? "Unavailable"}`,
-          `Extracted audio score: ${
-            typeof audio?.forensic_score === "number"
-              ? audio.forensic_score.toFixed(3)
-              : "Unavailable"
-          }`,
-        ]}
-        note="Current video decisions are based on sampled frame analysis, with extracted audio triage shown as a parallel evidence stream."
-      />
-
-      <div>
-        {selectedFrame ? (
-          <AnalysisDashboard result={selectedFrame} />
-        ) : (
-          <div className="text-slate-400">
-            No frames available for analysis.
-          </div>
-        )}
-      </div>
-    </div>
+    </CasePageScaffold>
   );
 };
 
