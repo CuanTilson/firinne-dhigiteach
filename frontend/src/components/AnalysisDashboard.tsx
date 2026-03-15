@@ -5,6 +5,7 @@ import { ForensicScoreCard } from "./ForensicScoreCard";
 import { fixPath } from "../constants";
 import { CheckCircle, XCircle, FileDigit, Fingerprint } from "lucide-react";
 import { sanitizeMetadata } from "../utils/metadata";
+import { C2PAProvenanceSummary } from "./C2PAProvenanceSummary";
 
 interface Props {
   result: AnalysisResult;
@@ -206,9 +207,15 @@ export const AnalysisDashboard: React.FC<Props> = ({ result }) => {
             )}
 
             {activeTab === "c2pa" && (
-              <pre className="text-xs text-cyan-300 font-mono whitespace-pre-wrap">
-                {JSON.stringify(result.c2pa, null, 2)}
-              </pre>
+              <div className="space-y-4">
+                <C2PAProvenanceSummary c2pa={result.c2pa} />
+                <details className="text-xs text-slate-400">
+                  <summary className="cursor-pointer">Raw C2PA JSON</summary>
+                  <pre className="mt-2 text-cyan-300 font-mono whitespace-pre-wrap">
+                    {JSON.stringify(result.c2pa, null, 2)}
+                  </pre>
+                </details>
+              </div>
             )}
 
             {activeTab === "jpeg" && (
