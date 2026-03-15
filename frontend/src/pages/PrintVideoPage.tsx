@@ -217,9 +217,21 @@ export const PrintVideoPage: React.FC = () => {
                   <div className="font-medium">{formatUnknown(audioMeta?.channels)}</div>
                 </div>
                 <div>
-                  <div className="text-slate-500 text-xs uppercase">Peak Amplitude</div>
+                  <div className="text-slate-500 text-xs uppercase">Peak Level</div>
                   <div className="font-medium">
-                    {formatUnknown(audioFeatures?.peak_amplitude)}
+                    {formatUnknown(audioFeatures?.peak_level)}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-slate-500 text-xs uppercase">Zero Crossing Rate</div>
+                  <div className="font-medium">
+                    {formatUnknown(audioFeatures?.zero_crossing_rate)}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-slate-500 text-xs uppercase">Spectral Flatness</div>
+                  <div className="font-medium">
+                    {formatUnknown(audioFeatures?.spectral_flatness)}
                   </div>
                 </div>
               </div>
