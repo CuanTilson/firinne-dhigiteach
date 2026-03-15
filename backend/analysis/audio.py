@@ -4,6 +4,7 @@ import contextlib
 import os
 import shutil
 import subprocess
+import tempfile
 import wave
 from pathlib import Path
 
@@ -143,68 +144,200 @@ def generate_waveform_image(audio_path: Path, output_path: Path) -> str | None:
     return str(output_path)
 
 
-def analyse_audio_file(audio_path: Path, waveform_output_path: Path | None = None) -> dict:
+def _transcode_audio_to_wav(
+    audio_path: Path,
+    output_path: Path,
+    ffmpeg_path: str,
+) -> dict:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    command = [
+        ffmpeg_path,
+        "-y",
+        "-i",
+        str(audio_path),
+        "-ac",
+        "1",
+        "-ar",
+        "16000",
+        "-f",
+        "wav",
+        str(output_path),
+    ]
+    try:
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except Exception as exc:
+        return {
+            "ok": False,
+            "output_path": None,
+            "error": f"ffmpeg execution failed: {exc}",
+        }
+
+    if completed.returncode != 0 or not output_path.exists():
+        return {
+            "ok": False,
+            "output_path": None,
+            "error": (completed.stderr or completed.stdout or "ffmpeg failed").strip(),
+        }
+
+    return {
+        "ok": True,
+        "output_path": str(output_path),
+        "error": None,
+    }
+
+
+def analyse_audio_file(
+    audio_path: Path,
+    waveform_output_path: Path | None = None,
+    configured_ffmpeg_path: str | None = None,
+) -> dict:
     metadata = extract_audio_metadata(audio_path)
-    samples, metadata = _load_wav_samples(audio_path)
+    analysis_input_path = audio_path
+    transcoded_tmp: Path | None = None
+    transcode_error: str | None = None
+
+    if audio_path.suffix.lower() != ".wav":
+        ffmpeg_path = resolve_ffmpeg_path(configured_ffmpeg_path)
+        if ffmpeg_path:
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+                transcoded_tmp = Path(tmp.name)
+            transcoded = _transcode_audio_to_wav(audio_path, transcoded_tmp, ffmpeg_path)
+            if transcoded["ok"]:
+                analysis_input_path = transcoded_tmp
+                metadata["notes"].append(
+                    "Non-WAV input was transcoded to mono 16 kHz WAV for waveform analysis."
+                )
+                metadata["container_supported"] = True
+                metadata["parse_method"] = "ffmpeg_transcode"
+            else:
+                transcode_error = str(transcoded["error"] or "ffmpeg transcode failed")
+                metadata["notes"].append(
+                    f"ffmpeg transcode was unavailable for deep analysis: {transcode_error}"
+                )
+
+    samples, deep_metadata = _load_wav_samples(analysis_input_path)
+    if deep_metadata:
+        if metadata.get("parse_method") == "ffmpeg_transcode":
+            for key in (
+                "duration_seconds",
+                "sample_rate_hz",
+                "channels",
+                "sample_width_bytes",
+                "frame_count",
+            ):
+                metadata[key] = deep_metadata.get(key)
+        else:
+            metadata = deep_metadata
+
     features = {
         "rms_level": None,
         "peak_level": None,
         "clipping_ratio": None,
         "silence_ratio": None,
+        "zero_crossing_rate": None,
+        "crest_factor": None,
         "spectral_centroid_hz": None,
+        "dominant_frequency_hz": None,
+        "spectral_flatness": None,
         "waveform_path": None,
         "analysis_mode": "basic",
+        "transcoded_for_analysis": analysis_input_path != audio_path,
     }
     findings: list[str] = []
     score = 0.25
 
-    if samples is not None and samples.size > 0:
-        rms = float(np.sqrt(np.mean(np.square(samples))))
-        peak = float(np.max(np.abs(samples)))
-        clipping_ratio = float(np.mean(np.abs(samples) >= 0.99))
-        silence_ratio = float(np.mean(np.abs(samples) <= 0.002))
+    try:
+        if samples is not None and samples.size > 0:
+            rms = float(np.sqrt(np.mean(np.square(samples))))
+            peak = float(np.max(np.abs(samples)))
+            clipping_ratio = float(np.mean(np.abs(samples) >= 0.99))
+            silence_ratio = float(np.mean(np.abs(samples) <= 0.002))
+            zero_crossing_rate = float(
+                np.mean(np.abs(np.diff(np.signbit(samples).astype(np.int8))))
+            )
+            crest_factor = float(peak / rms) if rms > 1e-8 else None
 
-        sample_rate = int(metadata.get("sample_rate_hz") or 0)
-        centroid = None
-        if sample_rate > 0:
-            window = samples[: min(samples.size, 16384)]
-            if window.size > 32:
-                spectrum = np.abs(np.fft.rfft(window))
-                freqs = np.fft.rfftfreq(window.size, d=1.0 / sample_rate)
-                denom = float(np.sum(spectrum))
-                centroid = float(np.sum(freqs * spectrum) / denom) if denom > 0 else 0.0
+            sample_rate = int(metadata.get("sample_rate_hz") or 0)
+            centroid = None
+            dominant_frequency = None
+            flatness = None
+            if sample_rate > 0:
+                window = samples[: min(samples.size, 16384)]
+                if window.size > 32:
+                    spectrum = np.abs(np.fft.rfft(window))
+                    freqs = np.fft.rfftfreq(window.size, d=1.0 / sample_rate)
+                    denom = float(np.sum(spectrum))
+                    centroid = float(np.sum(freqs * spectrum) / denom) if denom > 0 else 0.0
+                    if spectrum.size > 1:
+                        dominant_idx = int(np.argmax(spectrum[1:]) + 1)
+                        dominant_frequency = float(freqs[dominant_idx])
+                    safe_spectrum = spectrum + 1e-12
+                    flatness = float(
+                        np.exp(np.mean(np.log(safe_spectrum))) / np.mean(safe_spectrum)
+                    )
 
-        features.update(
-            {
-                "rms_level": rms,
-                "peak_level": peak,
-                "clipping_ratio": clipping_ratio,
-                "silence_ratio": silence_ratio,
-                "spectral_centroid_hz": centroid,
-                "analysis_mode": "waveform",
-            }
-        )
+            features.update(
+                {
+                    "rms_level": rms,
+                    "peak_level": peak,
+                    "clipping_ratio": clipping_ratio,
+                    "silence_ratio": silence_ratio,
+                    "zero_crossing_rate": zero_crossing_rate,
+                    "crest_factor": crest_factor,
+                    "spectral_centroid_hz": centroid,
+                    "dominant_frequency_hz": dominant_frequency,
+                    "spectral_flatness": flatness,
+                    "analysis_mode": "waveform"
+                    if analysis_input_path == audio_path
+                    else "transcoded_waveform",
+                }
+            )
 
-        if waveform_output_path is not None:
-            features["waveform_path"] = generate_waveform_image(audio_path, waveform_output_path)
+            if waveform_output_path is not None:
+                features["waveform_path"] = generate_waveform_image(
+                    analysis_input_path, waveform_output_path
+                )
 
-        if clipping_ratio > 0.02:
-            findings.append("High clipping ratio may indicate aggressive editing or poor capture quality.")
-            score += 0.25
-        if silence_ratio > 0.8:
-            findings.append("Large silent proportion reduces evidential quality.")
+            if clipping_ratio > 0.02:
+                findings.append("High clipping ratio may indicate aggressive editing or poor capture quality.")
+                score += 0.25
+            if silence_ratio > 0.8:
+                findings.append("Large silent proportion reduces evidential quality.")
+                score += 0.15
+            if rms < 0.01:
+                findings.append("Very low overall signal level limits interpretation confidence.")
+                score += 0.10
+            if crest_factor is not None and crest_factor > 8.0:
+                findings.append("High crest factor indicates sharp transients or heavy dynamic shaping.")
+                score += 0.10
+            if flatness is not None and flatness > 0.45:
+                findings.append("Noise-like spectral flatness suggests strong synthesis, compression, or degraded capture quality.")
+                score += 0.10
+            if zero_crossing_rate > 0.25:
+                findings.append("High zero-crossing rate indicates a noisy or strongly high-frequency signal profile.")
+                score += 0.08
+            if sample_rate and sample_rate < 16000:
+                findings.append("Low sample rate limits spectral detail and evidential quality.")
+                score += 0.05
+            if metadata.get("duration_seconds") and _safe_float(metadata["duration_seconds"]) < 1.0:
+                findings.append("Very short audio duration limits analysis reliability.")
+                score += 0.10
+        else:
+            findings.append(
+                "Deep waveform analysis is currently unavailable for this audio container; metadata-only triage was used."
+            )
             score += 0.15
-        if rms < 0.01:
-            findings.append("Very low overall signal level limits interpretation confidence.")
-            score += 0.10
-        if metadata.get("duration_seconds") and _safe_float(metadata["duration_seconds"]) < 1.0:
-            findings.append("Very short audio duration limits analysis reliability.")
-            score += 0.10
-    else:
-        findings.append(
-            "Deep waveform analysis is currently unavailable for this audio container; metadata-only triage was used."
-        )
-        score += 0.15
+    finally:
+        if transcoded_tmp is not None:
+            transcoded_tmp.unlink(missing_ok=True)
+
+    if transcode_error and features["analysis_mode"] == "basic":
+        features["ffmpeg_transcode_error"] = transcode_error
 
     score = max(0.0, min(score, 1.0))
     if score >= 0.7:
