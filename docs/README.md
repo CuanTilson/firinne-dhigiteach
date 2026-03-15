@@ -5,6 +5,10 @@ This folder contains the structured project documentation used for delivery, sup
 ## Best Starting Points
 
 - `docs/project-status.md` - current overall status and priority view
+- `docs/project-component-explainer.md` - presentation-ready explanation of how the project works
+- `docs/model-and-forensics-study-guide.md` - focused study guide for models, training, forensic features, and evaluation
+- `docs/repository-map.md` - practical guide to what the folders and important files are for
+- `docs/Week 5/week5-model-a-v2-plan.md` - controlled next experiment for improving Model A generalization
 - `docs/Week 3/week3-model-a-baseline.md` - current baseline training result
 - `docs/Week 1/week1-evaluation-protocol.md` - frozen evaluation rules
 
@@ -49,6 +53,12 @@ docs/
 - `docs/Week 4/week4-audio-backend-scaffold.md`
 - `docs/Week 4/week4-decision-integration.md`
 - `docs/Week 4/week4-final-configuration.md`
+
+### Week 5
+- `docs/Week 5/week5-provenance-hardening.md`
+- `docs/Week 5/week5-model-a-v2-plan.md`
+- `docs/Week 5/week5-model-a-v2-results.md`
+- `docs/Week 5/week5-model-a-v2_1-results.md`
 
 ## Documentation Principles
 
