@@ -8,6 +8,7 @@ import { ArrowLeft } from "lucide-react";
 import { AppliedSettingsPanel } from "../components/AppliedSettingsPanel";
 import { DecisionSummaryPanel } from "../components/DecisionSummaryPanel";
 import { AnalysisProvenancePanel } from "../components/AnalysisProvenancePanel";
+import { C2PAProvenanceSummary } from "../components/C2PAProvenanceSummary";
 
 export const PrintDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -215,6 +216,8 @@ export const PrintDetailPage: React.FC = () => {
           fusionMode={fusionMode}
           compact
         />
+
+        <C2PAProvenanceSummary c2pa={result.c2pa} compact />
 
         <section className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
