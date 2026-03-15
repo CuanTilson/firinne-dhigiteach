@@ -159,13 +159,13 @@ IMAGE_DETECTOR = os.getenv("FD_IMAGE_DETECTOR", "cnndetection")
 MODEL_A_WEIGHTS = Path(
     os.getenv(
         "FD_MODEL_A_WEIGHTS",
-        str(PROJECT_ROOT / "artifacts" / "model_a_baseline_gpu" / "model_a_best.pt"),
+        str(PROJECT_ROOT / "artifacts" / "model_a_v2_1_gpu" / "model_a_best.pt"),
     )
 )
 MODEL_A_RUN_MANIFEST = Path(
     os.getenv(
         "FD_MODEL_A_RUN_MANIFEST",
-        str(PROJECT_ROOT / "artifacts" / "model_a_baseline_gpu" / "run_manifest.json"),
+        str(PROJECT_ROOT / "artifacts" / "model_a_v2_1_gpu" / "run_manifest.json"),
     )
 )
 VIDEO_MAX_DURATION_SECONDS = int(os.getenv("FD_MAX_VIDEO_SECONDS", "180"))
@@ -335,8 +335,8 @@ def _get_detector_registry() -> dict[str, dict]:
             "name": "model_a",
             "display_name": "Model A",
             "available": model_a_detector is not None,
-            "model_version": "model-a-resnet18",
-            "dataset_version": "genimage-curated-week3",
+            "model_version": MODEL_A_METADATA.get("model_version", "model_a"),
+            "dataset_version": MODEL_A_METADATA.get("dataset_version", "unknown"),
             "weights": {
                 "sha256": MODEL_A_METADATA.get("weights_sha256", "missing"),
                 "md5": "n/a",
@@ -1001,7 +1001,11 @@ def run_video_analysis(
     )
     if extraction["ok"]:
         hashes_before = file_hashes(extracted_audio_path)
-        audio_result = analyse_audio_file(extracted_audio_path, waveform_path)
+        audio_result = analyse_audio_file(
+            extracted_audio_path,
+            waveform_path,
+            configured_ffmpeg_path=runtime_settings.get("ffmpeg_path"),
+        )
         hashes_after = file_hashes(extracted_audio_path)
         audio_bands = runtime_settings.get("audio_classification_bands", AUDIO_CLASSIFICATION_BANDS)
         audio_score = float(audio_result["forensic_score"])
@@ -1904,7 +1908,11 @@ def _build_audio_report_pdf(record: AudioAnalysisRecord) -> bytes:
             ("Peak level", _safe_text(audio_features.get("peak_level"))),
             ("Clipping ratio", _safe_text(audio_features.get("clipping_ratio"))),
             ("Silence ratio", _safe_text(audio_features.get("silence_ratio"))),
+            ("Zero crossing rate", _safe_text(audio_features.get("zero_crossing_rate"))),
+            ("Crest factor", _safe_text(audio_features.get("crest_factor"))),
             ("Spectral centroid (Hz)", _safe_text(audio_features.get("spectral_centroid_hz"))),
+            ("Dominant frequency (Hz)", _safe_text(audio_features.get("dominant_frequency_hz"))),
+            ("Spectral flatness", _safe_text(audio_features.get("spectral_flatness"))),
         ],
         y,
         width,
@@ -2220,7 +2228,12 @@ async def analyse_audio(
     runtime_settings = _analysis_runtime_settings(db)
 
     waveform_path = AUDIO_PLOTS_DIR / f"{uuid.uuid4().hex}_waveform.png"
-    analysis = await asyncio.to_thread(analyse_audio_file, saved_path, waveform_path)
+    analysis = await asyncio.to_thread(
+        analyse_audio_file,
+        saved_path,
+        waveform_path,
+        runtime_settings.get("ffmpeg_path"),
+    )
     if analysis["features"].get("waveform_path") is None:
         waveform_path = None
 
