@@ -1415,6 +1415,43 @@ def _settings_summary_rows(settings_payload) -> list[tuple[str, str]]:
     ]
 
 
+def _c2pa_summary_rows(c2pa: dict) -> list[tuple[str, str]]:
+    has_c2pa = bool(c2pa.get("has_c2pa"))
+    signature_valid = c2pa.get("signature_valid") is True
+    ai_assertions = c2pa.get("ai_assertions_found") or []
+    software_agents = c2pa.get("software_agents") or []
+    source_types = c2pa.get("digital_source_types") or []
+    ingredients = c2pa.get("ingredients") or []
+
+    if not has_c2pa:
+        summary = "No C2PA manifest detected"
+    elif not signature_valid:
+        summary = "C2PA present but signature invalid or unavailable"
+    elif ai_assertions:
+        summary = "Valid C2PA manifest with AI-related assertions"
+    else:
+        summary = "Valid C2PA manifest without explicit AI-related assertions"
+
+    return [
+        ("Summary", summary),
+        ("Manifest present", _safe_text(c2pa.get("has_c2pa"))),
+        ("Signature valid", _safe_text(c2pa.get("signature_valid"))),
+        ("AI assertion count", _safe_text(len(ai_assertions))),
+        ("Claim generator", _safe_text(c2pa.get("claim_generator"))),
+        ("Signer", _safe_text(c2pa.get("signer"))),
+        ("Signing time", _safe_text(c2pa.get("signing_time"))),
+        (
+            "Software agents",
+            _truncate_value(", ".join(str(x) for x in software_agents[:4]), 120),
+        ),
+        (
+            "Digital source types",
+            _truncate_value(", ".join(str(x) for x in source_types[:4]), 120),
+        ),
+        ("Ingredient count", _safe_text(len(ingredients))),
+    ]
+
+
 def _detector_metadata_from_name(detector_name: str | None) -> dict[str, Any]:
     registry_entry = _get_detector_registry().get(detector_name or "")
     if registry_entry:
@@ -1607,6 +1644,15 @@ def _build_image_report_pdf(record: AnalysisRecord) -> bytes:
             ("JPEG inconsistency score", _safe_text(jpeg.get("inconsistency_score"))),
             ("Noise mean residual", _safe_text(noise.get("mean_residual"))),
         ],
+        y,
+        width,
+        height,
+    )
+
+    y = _draw_key_value_section(
+        pdf,
+        "C2PA Provenance Summary",
+        _c2pa_summary_rows(c2pa),
         y,
         width,
         height,
