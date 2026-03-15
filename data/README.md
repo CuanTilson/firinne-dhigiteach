@@ -23,7 +23,7 @@ Primary training dataset:
   - baseline generators:
     - `Midjourney`
     - `stable_diffusion_v_1_5`
-  - broader `Model A v2` generators:
+  - current broader `Model A v2.1` generators:
     - `ADM`
     - `glide`
     - `Midjourney`
@@ -62,7 +62,7 @@ python data/scripts/build_week2_manifests.py `
   --max-per-class 2000
 ```
 
-### Broader `Model A v2` manifest build
+### Broader `Model A v2.1` manifest build
 
 Use this when you want to test whether broader generator diversity improves external
 generalization without changing the training code.
@@ -73,11 +73,11 @@ python data/scripts/build_week2_manifests.py `
   --kaggle-csv-dir "D:/firinne_datasets/kaggle" `
   --kaggle-train-images "D:/firinne_datasets/kaggle/train_data" `
   --kaggle-test-images "D:/firinne_datasets/kaggle/test_data_v2" `
-  --generators ADM BigGAN glide Midjourney stable_diffusion_v_1_5 `
+  --generators ADM glide Midjourney stable_diffusion_v_1_5 `
   --seed 2026 `
   --max-per-class 2000 `
   --max-per-generator-per-class 500 `
-  --output-dir data/manifests/model_a_v2
+  --output-dir data/manifests/model_a_v2_1
 ```
 
 ## Validate Manifests
@@ -93,11 +93,11 @@ python data/scripts/validate_manifest_images.py `
 
 Repeat validation for the validation, test, and Kaggle manifests.
 
-For the broader `Model A v2` experiment, use the same validator against:
-- `data/manifests/model_a_v2/genimage_train.csv`
-- `data/manifests/model_a_v2/genimage_val.csv`
-- `data/manifests/model_a_v2/genimage_test.csv`
-- `data/manifests/model_a_v2/kaggle_external_eval.csv`
+For the broader `Model A v2.1` experiment, use the same validator against:
+- `data/manifests/model_a_v2_1/genimage_train.csv`
+- `data/manifests/model_a_v2_1/genimage_val.csv`
+- `data/manifests/model_a_v2_1/genimage_test.csv`
+- `data/manifests/kaggle_external_eval.csv`
 
 ## Audit Generator Coverage After Validation
 
@@ -106,16 +106,15 @@ audit after validation and before training:
 
 ```powershell
 python data/scripts/audit_manifest_coverage.py `
-  --manifest data/manifests/model_a_v2/genimage_train.cleaned.csv `
-  --manifest data/manifests/model_a_v2/genimage_val.cleaned.csv `
-  --manifest data/manifests/model_a_v2/genimage_test.cleaned.csv `
+  --manifest data/manifests/model_a_v2_1/genimage_train.cleaned.csv `
+  --manifest data/manifests/model_a_v2_1/genimage_val.cleaned.csv `
+  --manifest data/manifests/model_a_v2_1/genimage_test.cleaned.csv `
   --expected-generator ADM `
-  --expected-generator BigGAN `
   --expected-generator glide `
   --expected-generator Midjourney `
   --expected-generator stable_diffusion_v_1_5 `
-  --output-json artifacts/model_a_v2_gpu/manifest_coverage_audit.json `
-  --output-md artifacts/model_a_v2_gpu/manifest_coverage_audit.md
+  --output-json artifacts/model_a_v2_1_gpu/manifest_coverage_audit.json `
+  --output-md artifacts/model_a_v2_1_gpu/manifest_coverage_audit.md
 ```
 
 If any expected `generator:label` pair disappears after validation, do not treat the run as the
@@ -137,5 +136,9 @@ final broader-dataset experiment. Fix the dataset composition first and rerun.
 - matching `*.validation.json` reports
 - `dataset_stats.json`
 
-For `Model A v2`, the same files should exist under:
-- `data/manifests/model_a_v2/`
+For the current broader-data run, the same files should exist under:
+- `data/manifests/model_a_v2_1/`
+
+Historical note:
+- `data/manifests/model_a_v2/` is kept as an intermediate experiment record only
+- it is not the current preferred broader-data manifest set
