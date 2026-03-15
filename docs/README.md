@@ -8,8 +8,8 @@ This folder contains the structured project documentation used for delivery, sup
 - `docs/project-component-explainer.md` - presentation-ready explanation of how the project works
 - `docs/model-and-forensics-study-guide.md` - focused study guide for models, training, forensic features, and evaluation
 - `docs/repository-map.md` - practical guide to what the folders and important files are for
-- `docs/Week 5/week5-model-a-v2-plan.md` - controlled next experiment for improving Model A generalization
-- `docs/Week 3/week3-model-a-baseline.md` - current baseline training result
+- `docs/Week 5/week5-model-a-v2_1-results.md` - current stronger self-trained `Model A` comparison checkpoint
+- `docs/Week 3/week3-model-a-baseline.md` - original baseline training result
 - `docs/Week 1/week1-evaluation-protocol.md` - frozen evaluation rules
 
 ## How to Use This Folder
@@ -18,6 +18,7 @@ This folder contains the structured project documentation used for delivery, sup
 - Read `Week 2` for dataset preparation and reproducibility work.
 - Read `Week 3` for the first trained model baseline and findings.
 - Read `Week 4` for audio backend scaffolding and decision-integration planning.
+- Read `Week 5` for provenance hardening and the broader-data `Model A` reruns.
 
 ## Folder Structure
 
@@ -28,6 +29,7 @@ docs/
   Week 2/
   Week 3/
   Week 4/
+  Week 5/
 ```
 
 ## Core Documents
@@ -56,9 +58,9 @@ docs/
 
 ### Week 5
 - `docs/Week 5/week5-provenance-hardening.md`
-- `docs/Week 5/week5-model-a-v2-plan.md`
-- `docs/Week 5/week5-model-a-v2-results.md`
 - `docs/Week 5/week5-model-a-v2_1-results.md`
+- `docs/Week 5/week5-model-a-v2-plan.md` - historical intermediate experiment plan
+- `docs/Week 5/week5-model-a-v2-results.md` - historical intermediate run, superseded by `v2.1`
 
 ## Documentation Principles
 
