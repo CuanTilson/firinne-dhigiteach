@@ -94,7 +94,10 @@ export const PrintAudioPage: React.FC = () => {
             <KV label="Duration" value={formatUnknown(result.audio_metadata?.duration_seconds, "seconds")} />
             <KV label="Sample Rate" value={formatUnknown(result.audio_metadata?.sample_rate_hz, "Hz")} />
             <KV label="Channels" value={formatUnknown(result.audio_metadata?.channels)} />
-            <KV label="Peak Amplitude" value={formatUnknown(result.audio_features?.peak_amplitude)} />
+            <KV label="Peak Level" value={formatUnknown(result.audio_features?.peak_level)} />
+            <KV label="Zero Crossing Rate" value={formatUnknown(result.audio_features?.zero_crossing_rate)} />
+            <KV label="Crest Factor" value={formatUnknown(result.audio_features?.crest_factor)} />
+            <KV label="Spectral Flatness" value={formatUnknown(result.audio_features?.spectral_flatness)} />
           </div>
         </section>
 
