@@ -83,6 +83,67 @@ That result is expected to feed the next phase:
 - improved evaluation reporting
 - Model B learned fusion with forensic features
 
+## Recommended Next Experiment: Model A v2
+
+The next controlled experiment should keep the training code stable and widen only the
+generator diversity in the GenImage training pool.
+
+Use this generator set:
+- `ADM`
+- `BigGAN`
+- `glide`
+- `Midjourney`
+- `stable_diffusion_v_1_5`
+
+Keep the first `v2` run otherwise aligned with the baseline:
+- architecture: `ResNet-18`
+- optimizer: `Adam`
+- image size: `224`
+- seed: `2026`
+- external evaluation: Kaggle cleaned manifest
+- broader generator mix constrained with `--max-per-generator-per-class 500`
+
+Important note:
+- if post-validation coverage drops an entire `generator:label` pair, do not treat that run as
+  the final broader-data checkpoint
+- the corrected run in this repository is `artifacts/model_a_v2_1_gpu`
+
+Expected output location:
+- `artifacts/model_a_v2_gpu`
+
+Example run:
+
+```powershell
+.\.venv-train\Scripts\python.exe -m backend.models.training.train_model_a `
+  --train-manifest data/manifests/model_a_v2/genimage_train.cleaned.csv `
+  --val-manifest data/manifests/model_a_v2/genimage_val.cleaned.csv `
+  --test-manifest data/manifests/model_a_v2/genimage_test.cleaned.csv `
+  --external-manifest data/manifests/model_a_v2/kaggle_external_eval.cleaned.csv `
+  --output-dir artifacts/model_a_v2_gpu `
+  --epochs 5 `
+  --batch-size 16 `
+  --image-size 224 `
+  --lr 1e-4 `
+  --seed 2026
+```
+
+In practice, you can reuse the already-cleaned Kaggle external manifest if it points to the
+same dataset root:
+
+```powershell
+.\.venv-train\Scripts\python.exe -m backend.models.training.train_model_a `
+  --train-manifest data/manifests/model_a_v2/genimage_train.cleaned.csv `
+  --val-manifest data/manifests/model_a_v2/genimage_val.cleaned.csv `
+  --test-manifest data/manifests/model_a_v2/genimage_test.cleaned.csv `
+  --external-manifest data/manifests/kaggle_external_eval.cleaned.csv `
+  --output-dir artifacts/model_a_v2_gpu `
+  --epochs 5 `
+  --batch-size 16 `
+  --image-size 224 `
+  --lr 1e-4 `
+  --seed 2026
+```
+
 ## Exporting Report-Ready Metrics
 
 Use the export helper to turn a completed `run_manifest.json` into report-friendly files:
@@ -97,6 +158,23 @@ This creates an `exports/` folder beside the run manifest containing:
 - `confusion_matrices.csv`
 - `metrics_summary.json`
 - `evaluation_summary.md`
+
+For `Model A v2`, run the same exporter against:
+
+```powershell
+.\.venv-train\Scripts\python.exe -m backend.models.training.export_model_a_results `
+  --run-manifest artifacts/model_a_v2_gpu/run_manifest.json
+```
+
+Threshold and ROC-AUC export:
+
+```powershell
+.\backend\.venv\Scripts\python.exe -m backend.models.training.analyze_model_a_thresholds `
+  --run-manifest artifacts/model_a_v2_gpu/run_manifest.json `
+  --weights artifacts/model_a_v2_gpu/model_a_best.pt `
+  --output-dir artifacts/model_a_v2_gpu/exports `
+  --skip-external
+```
 
 ## Preparing Model B Features
 
