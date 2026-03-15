@@ -278,3 +278,4 @@ pytest-cache-files-*/
 # Documents
 !docs/
 !docs/**/*
+docs
