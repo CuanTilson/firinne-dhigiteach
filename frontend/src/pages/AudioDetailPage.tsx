@@ -147,6 +147,10 @@ export const AudioDetailPage: React.FC = () => {
             <AudioField label="Sample Rate" value={formatUnknown(result.audio_metadata?.sample_rate_hz, "Hz")} />
             <AudioField label="Channels" value={formatUnknown(result.audio_metadata?.channels)} />
             <AudioField label="Hashes Match" value={formatUnknown(result.file_integrity?.hashes_match)} />
+            <AudioField label="Peak Level" value={formatUnknown(result.audio_features?.peak_level)} />
+            <AudioField label="Zero Crossing Rate" value={formatUnknown(result.audio_features?.zero_crossing_rate)} />
+            <AudioField label="Crest Factor" value={formatUnknown(result.audio_features?.crest_factor)} />
+            <AudioField label="Spectral Flatness" value={formatUnknown(result.audio_features?.spectral_flatness)} />
           </div>
           <div>
             <div className="text-xs uppercase tracking-wider text-slate-500 mb-2">Findings</div>
