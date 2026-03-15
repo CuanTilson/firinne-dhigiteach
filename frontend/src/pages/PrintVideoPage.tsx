@@ -246,7 +246,6 @@ export const PrintVideoPage: React.FC = () => {
                       src={fixPath(audio.waveform_path)}
                       alt="Extracted audio waveform"
                       className="w-full object-contain"
-                      crossOrigin="anonymous"
                     />
                   </figure>
                 ) : null}
@@ -309,7 +308,6 @@ export const PrintVideoPage: React.FC = () => {
                   src={fixPath(frame.saved_path)}
                   alt={`Frame ${frame.frame_index}`}
                   className="w-full h-28 object-cover"
-                  crossOrigin="anonymous"
                 />
                 <figcaption className="p-2 text-xs text-slate-700">
                   Frame {frame.frame_index} | {frame.timestamp_sec.toFixed(2)}s
