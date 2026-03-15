@@ -234,7 +234,6 @@ export const PrintDetailPage: React.FC = () => {
                     src={fixPath(result.saved_path)}
                     alt="Original"
                     className="w-full object-contain max-h-[320px]"
-                    crossOrigin="anonymous"
                   />
                 </figure>
               )}
@@ -247,7 +246,6 @@ export const PrintDetailPage: React.FC = () => {
                     src={fixPath(result.gradcam_heatmap)}
                     alt="GradCAM"
                     className="w-full object-contain max-h-[320px]"
-                    crossOrigin="anonymous"
                   />
                 </figure>
               )}
@@ -264,7 +262,6 @@ export const PrintDetailPage: React.FC = () => {
                   src={fixPath(result.ela_heatmap)}
                   alt="ELA"
                   className="w-full object-contain max-h-[320px]"
-                  crossOrigin="anonymous"
                 />
               </figure>
             )}
@@ -277,7 +274,6 @@ export const PrintDetailPage: React.FC = () => {
                   src={fixPath(result.noise_residual.noise_heatmap_path)}
                   alt="Noise"
                   className="w-full object-contain max-h-[320px]"
-                  crossOrigin="anonymous"
                 />
               </figure>
             )}
