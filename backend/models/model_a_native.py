@@ -82,15 +82,27 @@ class ModelADetector:
 
     def get_metadata(self) -> dict:
         config = self.run_manifest.get("config", {})
+        manifests = self.run_manifest.get("manifests", {})
+        train_manifest = str(manifests.get("train") or "")
+        dataset_version = "unknown"
+        if "model_a_v2" in train_manifest:
+            dataset_version = "genimage-model-a-v2-5gen"
+        elif "genimage" in train_manifest:
+            dataset_version = "genimage-model-a-baseline"
+
+        model_version = self.weights_path.parent.name or "model_a"
         return {
             "detector": "model_a",
             "display_name": "Model A",
+            "model_version": model_version,
+            "dataset_version": dataset_version,
             "image_size": self.image_size,
             "epochs": config.get("epochs"),
             "batch_size": config.get("batch_size"),
             "lr": config.get("lr"),
             "seed": self.run_manifest.get("seed"),
             "weights_sha256": self.run_manifest.get("weights_sha256"),
+            "weights_path": str(self.weights_path),
         }
 
 
