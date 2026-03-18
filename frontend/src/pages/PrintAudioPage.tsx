@@ -43,6 +43,14 @@ export const PrintAudioPage: React.FC = () => {
   const findings = Array.isArray(result.audio_features?.findings)
     ? result.audio_features?.findings.map(String)
     : [];
+  const segmentSummary =
+    result.audio_features && typeof result.audio_features.segment_summary === "object"
+      ? (result.audio_features.segment_summary as Record<string, unknown>)
+      : null;
+  const toolchain =
+    result.applied_settings && typeof result.applied_settings.toolchain === "object"
+      ? (result.applied_settings.toolchain as Record<string, unknown>)
+      : null;
 
   return (
     <div className="min-h-screen bg-slate-100 text-slate-900 px-4 py-8 print:bg-white print:p-0">
@@ -95,9 +103,29 @@ export const PrintAudioPage: React.FC = () => {
             <KV label="Sample Rate" value={formatUnknown(result.audio_metadata?.sample_rate_hz, "Hz")} />
             <KV label="Channels" value={formatUnknown(result.audio_metadata?.channels)} />
             <KV label="Peak Level" value={formatUnknown(result.audio_features?.peak_level)} />
+            <KV label="Dynamic Range" value={formatUnknown(result.audio_features?.dynamic_range_db, "dB")} />
             <KV label="Zero Crossing Rate" value={formatUnknown(result.audio_features?.zero_crossing_rate)} />
             <KV label="Crest Factor" value={formatUnknown(result.audio_features?.crest_factor)} />
+            <KV label="Repetition Score" value={formatUnknown(result.audio_features?.repetition_score)} />
             <KV label="Spectral Flatness" value={formatUnknown(result.audio_features?.spectral_flatness)} />
+            {segmentSummary ? (
+              <>
+                <KV label="Segment Size" value={formatUnknown(segmentSummary.segment_duration_seconds, "seconds")} />
+                <KV label="Segment Count" value={formatUnknown(segmentSummary.segment_count)} />
+                <KV label="Segment RMS Std" value={formatNestedStat(segmentSummary, "rms_level", "std")} />
+                <KV label="Segment ZCR Std" value={formatNestedStat(segmentSummary, "zero_crossing_rate", "std")} />
+              </>
+            ) : null}
+          </div>
+        </section>
+
+        <section className="border border-slate-200 rounded-lg p-4">
+          <div className="text-xs uppercase tracking-wider text-slate-500 mb-3">Analysis Diagnostics</div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <KV label="FFmpeg Available" value={formatUnknown(toolchain?.ffmpeg_available)} />
+            <KV label="Analysis Mode" value={formatUnknown(result.audio_features?.analysis_mode)} />
+            <KV label="Transcoded" value={formatUnknown(result.audio_features?.transcoded_for_analysis)} />
+            <KV label="FFmpeg Error" value={formatUnknown(result.audio_features?.ffmpeg_transcode_error)} />
           </div>
         </section>
 
@@ -121,6 +149,17 @@ export const PrintAudioPage: React.FC = () => {
             <img
               src={fixPath(result.waveform_path)}
               alt="Waveform preview"
+              className="w-full object-contain"
+            />
+          </section>
+        ) : null}
+
+        {typeof result.audio_features?.spectrogram_path === "string" ? (
+          <section className="border border-slate-200 rounded-lg p-4">
+            <div className="text-xs uppercase tracking-wider text-slate-500 mb-3">Spectrogram Exhibit</div>
+            <img
+              src={fixPath(result.audio_features.spectrogram_path)}
+              alt="Spectrogram preview"
               className="w-full object-contain"
             />
           </section>
@@ -156,4 +195,16 @@ const formatUnknown = (value: unknown, suffix?: string) => {
   if (typeof value === "boolean") return value ? "Yes" : "No";
   if (typeof value === "string" && value.trim()) return suffix ? `${value} ${suffix}` : value;
   return "Unavailable";
+};
+
+const formatNestedStat = (
+  source: Record<string, unknown>,
+  key: string,
+  stat: string
+) => {
+  const nested =
+    typeof source[key] === "object" && source[key] !== null
+      ? (source[key] as Record<string, unknown>)
+      : null;
+  return formatUnknown(nested?.[stat]);
 };
