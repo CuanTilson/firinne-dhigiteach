@@ -66,6 +66,10 @@ export const PrintVideoPage: React.FC = () => {
     audio?.audio_features && typeof audio.audio_features === "object"
       ? (audio.audio_features as Record<string, unknown>)
       : null;
+  const audioSegments =
+    audioFeatures && typeof audioFeatures.segment_summary === "object"
+      ? (audioFeatures.segment_summary as Record<string, unknown>)
+      : null;
   const audioHashes = audio?.file_integrity ?? null;
   const handleGeneratePdf = () => {
     window.print();
@@ -223,9 +227,21 @@ export const PrintVideoPage: React.FC = () => {
                   </div>
                 </div>
                 <div>
+                  <div className="text-slate-500 text-xs uppercase">Dynamic Range</div>
+                  <div className="font-medium">
+                    {formatUnknown(audioFeatures?.dynamic_range_db, "dB")}
+                  </div>
+                </div>
+                <div>
                   <div className="text-slate-500 text-xs uppercase">Zero Crossing Rate</div>
                   <div className="font-medium">
                     {formatUnknown(audioFeatures?.zero_crossing_rate)}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-slate-500 text-xs uppercase">Repetition Score</div>
+                  <div className="font-medium">
+                    {formatUnknown(audioFeatures?.repetition_score)}
                   </div>
                 </div>
                 <div>
@@ -234,6 +250,44 @@ export const PrintVideoPage: React.FC = () => {
                     {formatUnknown(audioFeatures?.spectral_flatness)}
                   </div>
                 </div>
+                <div>
+                  <div className="text-slate-500 text-xs uppercase">Transcoded</div>
+                  <div className="font-medium">
+                    {formatUnknown(audioFeatures?.transcoded_for_analysis)}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-slate-500 text-xs uppercase">FFmpeg Error</div>
+                  <div className="font-medium">
+                    {formatUnknown(audioFeatures?.ffmpeg_transcode_error)}
+                  </div>
+                </div>
+                {audioSegments ? (
+                  <>
+                    <div>
+                      <div className="text-slate-500 text-xs uppercase">Segment Size</div>
+                      <div className="font-medium">
+                        {formatUnknown(audioSegments.segment_duration_seconds, "seconds")}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-slate-500 text-xs uppercase">Segment Count</div>
+                      <div className="font-medium">{formatUnknown(audioSegments.segment_count)}</div>
+                    </div>
+                    <div>
+                      <div className="text-slate-500 text-xs uppercase">Segment RMS Std</div>
+                      <div className="font-medium">
+                        {formatNestedStat(audioSegments, "rms_level", "std")}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-slate-500 text-xs uppercase">Segment ZCR Std</div>
+                      <div className="font-medium">
+                        {formatNestedStat(audioSegments, "zero_crossing_rate", "std")}
+                      </div>
+                    </div>
+                  </>
+                ) : null}
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
@@ -245,6 +299,19 @@ export const PrintVideoPage: React.FC = () => {
                     <img
                       src={fixPath(audio.waveform_path)}
                       alt="Extracted audio waveform"
+                      className="w-full object-contain"
+                    />
+                  </figure>
+                ) : null}
+
+                {typeof audioFeatures?.spectrogram_path === "string" ? (
+                  <figure className="border border-slate-200 rounded-lg p-3">
+                    <figcaption className="text-xs uppercase text-slate-500 mb-2">
+                      Exhibit - Extracted Audio Spectrogram
+                    </figcaption>
+                    <img
+                      src={fixPath(audioFeatures.spectrogram_path as string)}
+                      alt="Extracted audio spectrogram"
                       className="w-full object-contain"
                     />
                   </figure>
@@ -336,4 +403,16 @@ const formatUnknown = (value: unknown, suffix?: string) => {
     return suffix ? `${value} ${suffix}` : value;
   }
   return "Unavailable";
+};
+
+const formatNestedStat = (
+  source: Record<string, unknown>,
+  key: string,
+  stat: string
+) => {
+  const nested =
+    typeof source[key] === "object" && source[key] !== null
+      ? (source[key] as Record<string, unknown>)
+      : null;
+  return formatUnknown(nested?.[stat]);
 };
