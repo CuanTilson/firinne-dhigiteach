@@ -91,6 +91,10 @@ export const VideoDetailPage: React.FC = () => {
     audio?.audio_features && typeof audio.audio_features === "object"
       ? (audio.audio_features as Record<string, unknown>)
       : null;
+  const audioSegments =
+    audioFeatures && typeof audioFeatures.segment_summary === "object"
+      ? (audioFeatures.segment_summary as Record<string, unknown>)
+      : null;
   const imageDetector =
     hashes && typeof hashes.image_detector === "object"
       ? (hashes.image_detector as Record<string, unknown>)
@@ -271,9 +275,13 @@ export const VideoDetailPage: React.FC = () => {
                 <AudioField label="Channels" value={formatUnknown(audioMeta?.channels)} />
                 <AudioField label="Bit depth" value={formatUnknown(audioMeta?.sample_width_bits, "bits")} />
                 <AudioField label="Peak level" value={formatUnknown(audioFeatures?.peak_level)} />
+                <AudioField label="Dynamic range" value={formatUnknown(audioFeatures?.dynamic_range_db, "dB")} />
                 <AudioField label="Clipping ratio" value={formatUnknown(audioFeatures?.clipping_ratio)} />
                 <AudioField label="Zero crossing rate" value={formatUnknown(audioFeatures?.zero_crossing_rate)} />
+                <AudioField label="Repetition score" value={formatUnknown(audioFeatures?.repetition_score)} />
                 <AudioField label="Spectral flatness" value={formatUnknown(audioFeatures?.spectral_flatness)} />
+                <AudioField label="Transcoded" value={formatUnknown(audioFeatures?.transcoded_for_analysis)} />
+                <AudioField label="FFmpeg Error" value={formatUnknown(audioFeatures?.ffmpeg_transcode_error)} />
               </div>
 
               {audio.error ? (
@@ -323,6 +331,45 @@ export const VideoDetailPage: React.FC = () => {
                 </div>
               ) : null}
 
+              {typeof audioFeatures?.spectrogram_path === "string" ? (
+                <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
+                  <div className="text-xs uppercase tracking-wider text-slate-500 mb-2">
+                    Spectrogram Preview
+                  </div>
+                  <img
+                    src={fixPath(audioFeatures.spectrogram_path as string)}
+                    alt="Extracted audio spectrogram"
+                    className="w-full rounded border border-slate-800 bg-slate-900"
+                  />
+                </div>
+              ) : null}
+
+              {audioSegments ? (
+                <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
+                  <div className="text-xs uppercase tracking-wider text-slate-500 mb-2">
+                    Segmented Signal Summary
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm text-slate-300">
+                    <AudioField
+                      label="Segment size"
+                      value={formatUnknown(audioSegments.segment_duration_seconds, "seconds")}
+                    />
+                    <AudioField
+                      label="Segment count"
+                      value={formatUnknown(audioSegments.segment_count)}
+                    />
+                    <AudioField
+                      label="RMS std"
+                      value={formatNestedStat(audioSegments, "rms_level", "std")}
+                    />
+                    <AudioField
+                      label="ZCR std"
+                      value={formatNestedStat(audioSegments, "zero_crossing_rate", "std")}
+                    />
+                  </div>
+                </div>
+              ) : null}
+
               <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
                 <div className="text-xs uppercase tracking-wider text-slate-500 mb-2">
                   Audio Metadata
@@ -354,6 +401,18 @@ const formatUnknown = (value: AudioValue, suffix?: string) => {
     return suffix ? `${value} ${suffix}` : value;
   }
   return "Unavailable";
+};
+
+const formatNestedStat = (
+  source: Record<string, unknown>,
+  key: string,
+  stat: string
+) => {
+  const nested =
+    typeof source[key] === "object" && source[key] !== null
+      ? (source[key] as Record<string, unknown>)
+      : null;
+  return formatUnknown(nested?.[stat]);
 };
 
 type AudioValue = AudioAnalysisSummary["forensic_score"] | string | unknown;
