@@ -30,6 +30,8 @@ docs/
   Week 3/
   Week 4/
   Week 5/
+  Week 6/
+  Week 7/
 ```
 
 ## Core Documents
@@ -61,6 +63,14 @@ docs/
 - `docs/Week 5/week5-model-a-v2_1-results.md`
 - `docs/Week 5/week5-model-a-v2-plan.md` - historical intermediate experiment plan
 - `docs/Week 5/week5-model-a-v2-results.md` - historical intermediate run, superseded by `v2.1`
+
+### Week 6
+- `docs/Week 6/week6-backend-integration-tests.md`
+
+### Week 7
+- `docs/Week 7/week7-final-evidence-index.md`
+- `docs/Week 7/week7-final-comparison-framing.md`
+- `docs/Week 7/week7-limitations-and-methodology-closeout.md`
 
 ## Documentation Principles
 
