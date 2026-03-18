@@ -35,6 +35,18 @@ export const AudioDetailPage: React.FC = () => {
     const value = result?.audio_features?.findings;
     return Array.isArray(value) ? value.map(String) : [];
   }, [result]);
+  const segmentSummary =
+    result?.audio_features &&
+    typeof result.audio_features === "object" &&
+    typeof result.audio_features.segment_summary === "object"
+      ? (result.audio_features.segment_summary as Record<string, unknown>)
+      : null;
+  const toolchain =
+    result?.applied_settings &&
+    typeof result.applied_settings === "object" &&
+    typeof result.applied_settings.toolchain === "object"
+      ? (result.applied_settings.toolchain as Record<string, unknown>)
+      : null;
 
   if (loading) {
     return <div className="min-h-screen flex items-center justify-center text-slate-400">Loading audio analysis #{id}...</div>;
@@ -147,8 +159,10 @@ export const AudioDetailPage: React.FC = () => {
             <AudioField label="Channels" value={formatUnknown(result.audio_metadata?.channels)} />
             <AudioField label="Hashes Match" value={formatUnknown(result.file_integrity?.hashes_match)} />
             <AudioField label="Peak Level" value={formatUnknown(result.audio_features?.peak_level)} />
+            <AudioField label="Dynamic Range" value={formatUnknown(result.audio_features?.dynamic_range_db, "dB")} />
             <AudioField label="Zero Crossing Rate" value={formatUnknown(result.audio_features?.zero_crossing_rate)} />
             <AudioField label="Crest Factor" value={formatUnknown(result.audio_features?.crest_factor)} />
+            <AudioField label="Repetition Score" value={formatUnknown(result.audio_features?.repetition_score)} />
             <AudioField label="Spectral Flatness" value={formatUnknown(result.audio_features?.spectral_flatness)} />
             <AudioField label="Dominant Frequency" value={formatUnknown(result.audio_features?.dominant_frequency_hz, "Hz")} />
             <AudioField label="Spectral Centroid" value={formatUnknown(result.audio_features?.spectral_centroid_hz, "Hz")} />
@@ -156,7 +170,7 @@ export const AudioDetailPage: React.FC = () => {
         </div>
 
         <div className="fd-card p-4 space-y-4">
-          <div className="fd-section-title">Waveform</div>
+          <div className="fd-section-title">Signal Exhibits</div>
           {result.waveform_path ? (
             <img
               src={fixPath(result.waveform_path)}
@@ -166,6 +180,69 @@ export const AudioDetailPage: React.FC = () => {
           ) : (
             <div className="text-sm text-slate-400">No waveform preview available for this file.</div>
           )}
+          {typeof result.audio_features?.spectrogram_path === "string" ? (
+            <img
+              src={fixPath(result.audio_features.spectrogram_path)}
+              alt="Spectrogram preview"
+              className="w-full rounded border border-slate-800 bg-slate-950"
+            />
+          ) : null}
+        </div>
+      </div>
+
+      {segmentSummary ? (
+        <div className="fd-card p-4 space-y-4">
+          <div className="fd-section-title">Segment Summary</div>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 text-sm">
+            <SegmentField
+              label="Segment Size"
+              value={formatUnknown(segmentSummary.segment_duration_seconds, "seconds")}
+              detail={`${formatUnknown(segmentSummary.segment_count)} segments`}
+            />
+            <SegmentField
+              label="RMS Variation"
+              value={formatNestedStat(segmentSummary, "rms_level", "std")}
+              detail={`Mean ${formatNestedStat(segmentSummary, "rms_level", "mean")}`}
+            />
+            <SegmentField
+              label="ZCR Variation"
+              value={formatNestedStat(segmentSummary, "zero_crossing_rate", "std")}
+              detail={`Mean ${formatNestedStat(segmentSummary, "zero_crossing_rate", "mean")}`}
+            />
+            <SegmentField
+              label="Flatness Variation"
+              value={formatNestedStat(segmentSummary, "spectral_flatness", "std")}
+              detail={`Mean ${formatNestedStat(segmentSummary, "spectral_flatness", "mean")}`}
+            />
+          </div>
+        </div>
+      ) : null}
+
+      <div className="fd-card p-4 space-y-4">
+        <div className="fd-section-title">Analysis Diagnostics</div>
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 text-sm">
+          <SegmentField
+            label="FFmpeg Available"
+            value={formatUnknown(toolchain?.ffmpeg_available)}
+            detail={formatUnknown(toolchain?.ffmpeg_resolved_path)}
+          />
+          <SegmentField
+            label="Analysis Mode"
+            value={formatUnknown(result.audio_features?.analysis_mode)}
+            detail={
+              result.audio_features?.transcoded_for_analysis === true
+                ? "Transcoded before waveform analysis"
+                : "Direct analysis path"
+            }
+          />
+          <SegmentField
+            label="Transcoded"
+            value={formatUnknown(result.audio_features?.transcoded_for_analysis)}
+          />
+          <SegmentField
+            label="FFmpeg Error"
+            value={formatUnknown(result.audio_features?.ffmpeg_transcode_error)}
+          />
         </div>
       </div>
 
@@ -193,9 +270,37 @@ const AudioField = ({ label, value }: { label: string; value: string }) => (
   </div>
 );
 
+const SegmentField = ({
+  label,
+  value,
+  detail,
+}: {
+  label: string;
+  value: string;
+  detail?: string;
+}) => (
+  <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
+    <div className="text-xs uppercase tracking-wider text-slate-500">{label}</div>
+    <div className="mt-1 text-slate-200">{value}</div>
+    {detail ? <div className="mt-1 text-xs text-slate-500">{detail}</div> : null}
+  </div>
+);
+
 const formatUnknown = (value: unknown, suffix?: string) => {
   if (typeof value === "number") return suffix ? `${value} ${suffix}` : String(value);
   if (typeof value === "boolean") return value ? "Yes" : "No";
   if (typeof value === "string" && value.trim()) return suffix ? `${value} ${suffix}` : value;
   return "Unavailable";
+};
+
+const formatNestedStat = (
+  source: Record<string, unknown>,
+  key: string,
+  stat: string
+) => {
+  const nested =
+    typeof source[key] === "object" && source[key] !== null
+      ? (source[key] as Record<string, unknown>)
+      : null;
+  return formatUnknown(nested?.[stat]);
 };
