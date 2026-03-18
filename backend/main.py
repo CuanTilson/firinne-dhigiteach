@@ -423,6 +423,16 @@ def _get_runtime_overrides(db: Session | None) -> dict:
 
 def _get_settings_snapshot(db: Session | None = None) -> dict:
     snapshot = _merge_settings(_default_settings_snapshot(), _get_runtime_overrides(db))
+    pipeline = snapshot.get("pipeline") if isinstance(snapshot.get("pipeline"), dict) else {}
+    selected_detector = pipeline.get("image_detector", IMAGE_DETECTOR)
+    detector_info = _resolve_image_detector(selected_detector)
+    snapshot["pipeline"] = {
+        **pipeline,
+        "image_detector": detector_info["name"],
+        "model_version": detector_info["model_version"],
+        "dataset_version": detector_info["dataset_version"],
+        "weights": detector_info["weights"],
+    }
     configured_ffmpeg = (
         snapshot.get("paths", {}).get("ffmpeg_path")
         if isinstance(snapshot.get("paths"), dict)
@@ -994,6 +1004,7 @@ def run_video_analysis(
     }
     extracted_audio_path = AUDIO_EXTRACT_DIR / f"{uuid.uuid4().hex}.wav"
     waveform_path = AUDIO_PLOTS_DIR / f"{uuid.uuid4().hex}_video_audio_waveform.png"
+    spectrogram_path = AUDIO_PLOTS_DIR / f"{uuid.uuid4().hex}_video_audio_spectrogram.png"
     extraction = extract_audio_from_video(
         video_path,
         extracted_audio_path,
@@ -1004,6 +1015,7 @@ def run_video_analysis(
         audio_result = analyse_audio_file(
             extracted_audio_path,
             waveform_path,
+            spectrogram_path,
             configured_ffmpeg_path=runtime_settings.get("ffmpeg_path"),
         )
         hashes_after = file_hashes(extracted_audio_path)
@@ -2274,10 +2286,12 @@ async def analyse_audio(
     runtime_settings = _analysis_runtime_settings(db)
 
     waveform_path = AUDIO_PLOTS_DIR / f"{uuid.uuid4().hex}_waveform.png"
+    spectrogram_path = AUDIO_PLOTS_DIR / f"{uuid.uuid4().hex}_spectrogram.png"
     analysis = await asyncio.to_thread(
         analyse_audio_file,
         saved_path,
         waveform_path,
+        spectrogram_path,
         runtime_settings.get("ffmpeg_path"),
     )
     if analysis["features"].get("waveform_path") is None:
