@@ -69,6 +69,7 @@ docs/
 
 ### Week 7
 - `docs/Week 7/week7-final-method-summary.md`
+- `docs/Week 7/week7-frozen-evidence-pack.md`
 - `docs/Week 7/week7-final-evidence-index.md`
 - `docs/Week 7/week7-final-comparison-framing.md`
 - `docs/Week 7/week7-limitations-and-methodology-closeout.md`
