@@ -68,9 +68,11 @@ docs/
 - `docs/Week 6/week6-backend-integration-tests.md`
 
 ### Week 7
+- `docs/Week 7/week7-final-method-summary.md`
 - `docs/Week 7/week7-final-evidence-index.md`
 - `docs/Week 7/week7-final-comparison-framing.md`
 - `docs/Week 7/week7-limitations-and-methodology-closeout.md`
+- `docs/Week 7/week7-demo-checklist.md`
 
 ## Documentation Principles
 
