@@ -26,11 +26,6 @@ Implemented now:
 - Week 6 backend integration test pack
 - Week 7 final closeout docs for method summary, evidence indexing, comparison framing, limitations, and demo prep
 
-Remaining closeout work:
-- freeze the final evidence pack used in the dissertation
-- do a final runtime verification pass before submission/demo
-- keep the final report and demo wording disciplined
-
 ## Repository Layout
 
 ```text
@@ -67,6 +62,37 @@ Frontend default URL:
 
 Backend default URL:
 - `http://localhost:8000`
+
+## Docker
+
+The repository now includes:
+- `Dockerfile.backend`
+- `Dockerfile.frontend`
+- `docker-compose.yml`
+
+Start both services:
+
+```powershell
+docker compose up --build
+```
+
+Container URLs:
+- frontend: `http://localhost:5173`
+- backend: `http://localhost:8000`
+
+Important Docker notes:
+- the compose setup mounts:
+  - `./backend/storage`
+  - `./backend/database`
+  - `./vendor/CNNDetection/weights`
+  - `./artifacts`
+- vendor `CNNDetection` weights are required for backend startup
+- self-trained `Model A` artifacts are not baked into the image; they are expected via the mounted `artifacts/` folder
+- compose is now configured to prefer `Model A v2.1` by default:
+  - `FD_IMAGE_DETECTOR=model_a`
+  - `FD_MODEL_A_WEIGHTS=/app/artifacts/model_a_v2_1_gpu/model_a_best.pt`
+  - `FD_MODEL_A_RUN_MANIFEST=/app/artifacts/model_a_v2_1_gpu/run_manifest.json`
+- if those files are missing in the mounted `./artifacts` folder, `model_a` will not be available and the backend will fall back to the vendor detector path
 
 ## Configuration
 
@@ -132,34 +158,3 @@ If you clone the project fresh, initialize submodules first:
 ```powershell
 git submodule update --init --recursive
 ```
-
-## Documentation Map
-
-Start here for project docs:
-- `docs/README.md`
-
-Important supporting docs:
-- `docs/project-status.md` - current implementation and research status
-- `docs/Week 7/week7-final-method-summary.md` - final concise project method
-- `docs/Week 7/week7-frozen-evidence-pack.md` - final frozen artifact set for citation and demo use
-- `docs/Week 7/week7-final-evidence-index.md` - final artifact index for report citation
-- `docs/Week 7/week7-final-comparison-framing.md` - how to present vendor vs self-trained vs Model B comparisons
-- `docs/Week 7/week7-limitations-and-methodology-closeout.md` - final limitations and decision-support wording
-- `docs/Week 7/week7-demo-checklist.md` - final demo preparation checklist
-- `data/README.md` - dataset storage, manifest generation, validation workflow
-- `backend/models/training/README.md` - Model A training workflow
-- `docs/Week 1/week1-scope-freeze.md` - frozen project scope
-- `docs/Week 1/week1-evaluation-protocol.md` - evaluation protocol
-- `docs/Week 2/week2-summary.md` - data preparation completion summary
-- `docs/Week 3/week3-model-a-baseline.md` - first baseline training result
-- `docs/Week 3/week3-evaluation-summary.md` - consolidated Week 3 evaluation
-- `docs/Week 4/week4-audio-backend-scaffold.md` - Week 4 audio backend increment
-
-## Notes
-
-- Raw datasets should stay outside the repository.
-- Training artifacts should be written to `artifacts/` and not committed.
-- The original Model A baseline showed strong in-domain performance and weak external generalization.
-- The corrected broader-data `Model A v2.1` run improved external performance substantially and
-  is now the preferred self-trained comparison checkpoint.
-- `Model B` remains an offline learned-fusion experiment, not the live production decision path.
