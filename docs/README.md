@@ -7,6 +7,7 @@ This folder contains the structured project documentation used for delivery, sup
 - `docs/project-status.md` - current overall status and priority view
 - `docs/project-component-explainer.md` - presentation-ready explanation of how the project works
 - `docs/model-and-forensics-study-guide.md` - focused study guide for models, training, forensic features, and evaluation
+- `docs/project-comprehensive-reference.md` - full project-wide technical and methodological reference
 - `docs/repository-map.md` - practical guide to what the folders and important files are for
 - `docs/Week 5/week5-model-a-v2_1-results.md` - current stronger self-trained `Model A` comparison checkpoint
 - `docs/Week 3/week3-model-a-baseline.md` - original baseline training result
