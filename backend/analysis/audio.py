@@ -374,6 +374,11 @@ def analyse_audio_file(
                 metadata["notes"].append(
                     f"ffmpeg transcode was unavailable for deep analysis: {transcode_error}"
                 )
+        else:
+            transcode_error = (
+                "ffmpeg was not found. Deep waveform analysis is unavailable for non-WAV audio."
+            )
+            metadata["notes"].append(transcode_error)
 
     samples, deep_metadata = _load_wav_samples(analysis_input_path)
     if deep_metadata:
@@ -387,7 +392,12 @@ def analyse_audio_file(
             ):
                 metadata[key] = deep_metadata.get(key)
         else:
-            metadata = deep_metadata
+            merged_notes = list(metadata.get("notes") or [])
+            for note in deep_metadata.get("notes") or []:
+                if note not in merged_notes:
+                    merged_notes.append(note)
+            metadata = {**deep_metadata, **metadata}
+            metadata["notes"] = merged_notes
 
     features = {
         "rms_level": None,
