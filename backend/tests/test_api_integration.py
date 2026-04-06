@@ -136,6 +136,25 @@ class ApiIntegrationTests(unittest.TestCase):
         actions = [entry["action"] for entry in audit.json()["data"]]
         self.assertIn("settings_updated", actions)
 
+    def test_image_analysis_rejects_non_image_upload(self):
+        response = self.client.post(
+            "/analysis/image",
+            files={"file": ("sample.txt", io.BytesIO(b"fake"), "text/plain")},
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("image file", response.text)
+
+    def test_image_analysis_rejects_corrupted_image(self):
+        with patch.object(main, "save_uploaded_file", side_effect=self._stub_save_image), \
+            patch.object(main, "_ensure_image_valid", side_effect=main.HTTPException(400, "Invalid or corrupted image file.")):
+            response = self.client.post(
+                "/analysis/image",
+                files={"file": ("sample.jpg", io.BytesIO(b"fake"), "image/jpeg")},
+            )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Invalid or corrupted image file", response.text)
+
     def test_image_analysis_detail_and_report(self):
         heatmap = self.temp_path / "heatmaps" / "gradcam.jpg"
         ela = self.temp_path / "ela" / "ela.jpg"
@@ -223,15 +242,27 @@ class ApiIntegrationTests(unittest.TestCase):
         payload = response.json()
         self.assertEqual(payload["classification"], "likely_ai_generated")
         self.assertEqual(payload["ml_prediction"]["detector"]["name"], "model_a")
+        self.assertIn("applied_settings", payload)
+        self.assertTrue(payload["file_integrity"]["hashes_match"])
         record_id = payload["id"]
 
         detail = self.client.get(f"/analysis/{record_id}")
         self.assertEqual(detail.status_code, 200)
         self.assertEqual(detail.json()["forensic_score_json"]["provenance"]["fusion_mode"], "rule_based_forensic_fusion")
+        self.assertIn("applied_settings", detail.json())
 
         report = self.client.get(f"/analysis/{record_id}/report.pdf")
         self.assertEqual(report.status_code, 200)
         self.assertEqual(report.headers["content-type"], "application/pdf")
+
+        audit = self.client.get("/audit")
+        actions = [entry["action"] for entry in audit.json()["data"]]
+        self.assertIn("analysis_image_completed", actions)
+        self.assertIn("report_generated", actions)
+
+    def test_image_report_returns_404_for_missing_record(self):
+        response = self.client.get("/analysis/99999/report.pdf")
+        self.assertEqual(response.status_code, 404)
 
     def test_audio_analysis_detail_and_report(self):
         record_id = self._create_audio_record()
@@ -240,10 +271,31 @@ class ApiIntegrationTests(unittest.TestCase):
         self.assertEqual(detail.status_code, 200)
         self.assertEqual(detail.json()["classification"], "likely_ai_generated")
         self.assertEqual(detail.json()["audio_features"]["analysis_mode"], "waveform")
+        self.assertIn("applied_settings", detail.json())
+        self.assertTrue(detail.json()["file_integrity"]["hashes_match"])
 
         report = self.client.get(f"/analysis/audio/{record_id}/report.pdf")
         self.assertEqual(report.status_code, 200)
         self.assertEqual(report.headers["content-type"], "application/pdf")
+
+    def test_audio_analysis_rejects_non_audio_upload(self):
+        response = self.client.post(
+            "/analysis/audio",
+            files={"file": ("sample.txt", io.BytesIO(b"fake"), "text/plain")},
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("audio file", response.text)
+
+    def test_video_analysis_rejects_invalid_video_duration(self):
+        with patch.object(main, "save_uploaded_file", side_effect=self._stub_save_video), \
+            patch.object(main, "get_video_duration_seconds", return_value=0.0):
+            response = self.client.post(
+                "/analysis/video",
+                files={"file": ("sample.mp4", io.BytesIO(b"fake"), "video/mp4")},
+            )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("invalid or unreadable", response.text)
 
     def test_video_analysis_detail_and_report(self):
         frame_path = self.temp_path / "video_frames" / "frame_0.jpg"
@@ -268,8 +320,10 @@ class ApiIntegrationTests(unittest.TestCase):
                 }
             ],
             "audio_analysis": {
-                "classification": "uncertain",
-                "forensic_score": 0.4,
+                "available": False,
+                "classification": None,
+                "forensic_score": None,
+                "error": "ffmpeg was not found",
                 "waveform_path": None,
             },
         }
@@ -289,11 +343,14 @@ class ApiIntegrationTests(unittest.TestCase):
         payload = response.json()
         self.assertEqual(payload["frame_count"], 1)
         self.assertEqual(payload["video_metadata"]["image_detector"]["name"], "cnndetection")
+        self.assertIn("applied_settings", payload)
         record_id = payload["id"]
 
         detail = self.client.get(f"/analysis/video/{record_id}")
         self.assertEqual(detail.status_code, 200)
         self.assertEqual(detail.json()["frame_count"], 1)
+        self.assertEqual(detail.json()["audio_analysis"]["error"], "ffmpeg was not found")
+        self.assertIn("applied_settings", detail.json())
 
         report = self.client.get(f"/analysis/video/{record_id}/report.pdf")
         self.assertEqual(report.status_code, 200)
