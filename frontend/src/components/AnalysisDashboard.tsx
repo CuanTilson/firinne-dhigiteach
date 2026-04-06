@@ -159,36 +159,48 @@ export const AnalysisDashboard: React.FC<Props> = ({ result }) => {
       <div>
         <div className="fd-section-title mb-3">Forensic Details</div>
         <div className="fd-card overflow-hidden">
-          <div className="flex border-b border-slate-700">
+          <div className="flex border-b border-slate-700" role="tablist" aria-label="Forensic detail panels">
             <button
               onClick={() => setActiveTab("metadata")}
+              id="tab-metadata"
+              role="tab"
+              aria-selected={activeTab === "metadata"}
+              aria-controls="panel-metadata"
               className={`flex-1 py-3 text-sm font-medium border-b-2 ${
                 activeTab === "metadata"
                   ? "border-cyan-500 text-cyan-400 bg-slate-700/50"
                   : "border-transparent text-slate-400"
-              }`}
+              } focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:ring-inset`}
             >
               Raw Metadata
             </button>
 
             <button
               onClick={() => setActiveTab("c2pa")}
+              id="tab-c2pa"
+              role="tab"
+              aria-selected={activeTab === "c2pa"}
+              aria-controls="panel-c2pa"
               className={`flex-1 py-3 text-sm font-medium border-b-2 ${
                 activeTab === "c2pa"
                   ? "border-cyan-500 text-cyan-400 bg-slate-700/50"
                   : "border-transparent text-slate-400"
-              }`}
+              } focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:ring-inset`}
             >
               C2PA Info
             </button>
 
             <button
               onClick={() => setActiveTab("jpeg")}
+              id="tab-jpeg"
+              role="tab"
+              aria-selected={activeTab === "jpeg"}
+              aria-controls="panel-jpeg"
               className={`flex-1 py-3 text-sm font-medium border-b-2 ${
                 activeTab === "jpeg"
                   ? "border-cyan-500 text-cyan-400 bg-slate-700/50"
                   : "border-transparent text-slate-400"
-              }`}
+              } focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:ring-inset`}
             >
               JPEG Tables
             </button>
@@ -196,7 +208,12 @@ export const AnalysisDashboard: React.FC<Props> = ({ result }) => {
 
           <div className="p-4">
             {activeTab === "metadata" && (
-              <div className="space-y-3">
+              <div
+                id="panel-metadata"
+                role="tabpanel"
+                aria-labelledby="tab-metadata"
+                className="space-y-3"
+              >
                 <pre className="text-xs text-slate-300 font-mono whitespace-pre-wrap">
                   {JSON.stringify(safeMetadata, null, 2)}
                 </pre>
@@ -207,7 +224,12 @@ export const AnalysisDashboard: React.FC<Props> = ({ result }) => {
             )}
 
             {activeTab === "c2pa" && (
-              <div className="space-y-4">
+              <div
+                id="panel-c2pa"
+                role="tabpanel"
+                aria-labelledby="tab-c2pa"
+                className="space-y-4"
+              >
                 <C2PAProvenanceSummary c2pa={result.c2pa} />
                 <details className="text-xs text-slate-400">
                   <summary className="cursor-pointer">Raw C2PA JSON</summary>
@@ -219,7 +241,12 @@ export const AnalysisDashboard: React.FC<Props> = ({ result }) => {
             )}
 
             {activeTab === "jpeg" && (
-              <div className="space-y-4">
+              <div
+                id="panel-jpeg"
+                role="tabpanel"
+                aria-labelledby="tab-jpeg"
+                className="space-y-4"
+              >
                 <div className="flex flex-wrap gap-2">
                   {typeof result.jpeg_qtables?.quality_estimate === "number" && (
                     <span className="px-2 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">
