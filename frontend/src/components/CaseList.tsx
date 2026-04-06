@@ -55,7 +55,7 @@ export const CaseList: React.FC<Props> = ({ records, loading, onDelete }) => {
               <div className="h-16 w-16 rounded-xl bg-slate-950 overflow-hidden border border-slate-800 shrink-0">
                 <img
                   src={`${API_BASE_URL}${record.thumbnail_url}`}
-                  alt="thumb"
+                  alt={`${record.media_type} thumbnail for ${record.filename}`}
                   className="h-full w-full object-cover"
                   onError={(e) => {
                     (e.target as HTMLImageElement).src =
@@ -97,21 +97,21 @@ export const CaseList: React.FC<Props> = ({ records, loading, onDelete }) => {
             <div className="flex flex-wrap gap-2">
               <Link
                 to={detailPath}
-                className="px-3 py-2 rounded-full text-xs font-medium border border-slate-800 bg-slate-900/70 text-slate-200 hover:bg-slate-800 transition-colors inline-flex items-center gap-2"
+                className="px-3 py-2 rounded-full text-xs font-medium border border-slate-800 bg-slate-900/70 text-slate-200 hover:bg-slate-800 transition-colors inline-flex items-center gap-2 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:ring-offset-2 focus:ring-offset-slate-900"
               >
                 <Eye size={14} />
                 View
               </Link>
               <a
                 href={printPath}
-                className="px-3 py-2 rounded-full text-xs font-medium border border-slate-800 bg-slate-900/70 text-slate-200 hover:bg-slate-800 transition-colors inline-flex items-center gap-2"
+                className="px-3 py-2 rounded-full text-xs font-medium border border-slate-800 bg-slate-900/70 text-slate-200 hover:bg-slate-800 transition-colors inline-flex items-center gap-2 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:ring-offset-2 focus:ring-offset-slate-900"
               >
                 <Printer size={14} />
                 Report
               </a>
               <button
                 onClick={() => onDelete(record.id, record.media_type)}
-                className="px-3 py-2 rounded-full text-xs font-medium border border-rose-400/30 bg-rose-500/10 text-rose-200 hover:bg-rose-500/20 transition-colors inline-flex items-center gap-2"
+                className="px-3 py-2 rounded-full text-xs font-medium border border-rose-400/30 bg-rose-500/10 text-rose-200 hover:bg-rose-500/20 transition-colors inline-flex items-center gap-2 focus:outline-none focus:ring-2 focus:ring-rose-500 focus:ring-offset-2 focus:ring-offset-slate-900"
               >
                 <Trash2 size={14} />
                 Delete
