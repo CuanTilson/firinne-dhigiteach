@@ -365,14 +365,14 @@ export const SettingsPage: React.FC = () => {
             placeholder="Leave blank to use PATH or auto-discovery"
           />
           {saveMessage ? (
-            <div className="text-sm text-emerald-300">{saveMessage}</div>
+            <div className="text-sm text-emerald-300" aria-live="polite">{saveMessage}</div>
           ) : null}
           {!DEFAULT_ADMIN_KEY ? (
             <div className="text-sm text-amber-300">
               `VITE_ADMIN_KEY` is not configured, so settings updates are disabled in this UI.
             </div>
           ) : null}
-          {error ? <div className="text-sm text-red-400">{error}</div> : null}
+          {error ? <div className="text-sm text-red-400" aria-live="assertive">{error}</div> : null}
           <div>
             <div className="text-xs uppercase tracking-widest text-slate-500">
               Fusion Weights
