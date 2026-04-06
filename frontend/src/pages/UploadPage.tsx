@@ -398,8 +398,17 @@ export const UploadPage: React.FC = () => {
                   ? "border-cyan-400/40 bg-cyan-900/10"
                   : "border-slate-800/80 bg-slate-950/30 hover:border-slate-600 hover:bg-slate-900/40"
               }`}
+            role="button"
+            tabIndex={0}
+            aria-label="Upload media evidence"
             onDragOver={(e) => e.preventDefault()}
             onDrop={handleDrop}
+            onKeyDown={(e) => {
+              if ((e.key === "Enter" || e.key === " ") && !preview) {
+                e.preventDefault();
+                fileInputRef.current?.click();
+              }
+            }}
           >
             {preview && !previewFailed ? (
               <div className="relative group">
@@ -469,6 +478,7 @@ export const UploadPage: React.FC = () => {
                   onChange={handleFileChange}
                   className="hidden"
                   accept="image/*,video/*,audio/*,.wav,.mp3,.m4a,.flac"
+                  aria-label="Browse media files"
                 />
                 <div className="flex justify-center">
                   <Button onClick={() => fileInputRef.current?.click()}>
@@ -491,7 +501,7 @@ export const UploadPage: React.FC = () => {
           )}
 
           {loading && (
-            <div className="mt-8 text-center">
+            <div className="mt-8 text-center" aria-live="polite">
               <div className="inline-block animate-spin rounded-full h-10 w-10 border-4 border-cyan-500 border-r-transparent mb-4"></div>
               <h3 className="text-xl font-medium text-slate-200">
                 Analysing{" "}
@@ -520,7 +530,10 @@ export const UploadPage: React.FC = () => {
           )}
 
           {error && (
-            <div className="mt-6 p-4 bg-red-500/10 border border-red-500/20 rounded-lg flex items-center gap-3 text-red-200 max-w-2xl mx-auto">
+            <div
+              className="mt-6 p-4 bg-red-500/10 border border-red-500/20 rounded-lg flex items-center gap-3 text-red-200 max-w-2xl mx-auto"
+              aria-live="assertive"
+            >
               <AlertCircle />
               {error}
             </div>
