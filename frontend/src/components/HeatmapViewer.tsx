@@ -59,11 +59,13 @@ export const HeatmapViewer: React.FC<HeatmapViewerProps> = ({
             <button
               key={key}
               onClick={() => setMode(key)}
+              aria-pressed={mode === key}
+              aria-label={`Show ${label} view`}
               className={`px-3 py-1.5 rounded-full text-xs font-medium flex items-center gap-2 transition-colors border ${
                 mode === key
                   ? "bg-cyan-500/20 text-cyan-200 border-cyan-400/40"
                   : "text-slate-400 border-slate-800 hover:text-slate-200 hover:bg-slate-900"
-              }`}
+              } focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:ring-offset-2 focus:ring-offset-slate-900`}
             >
               <Icon size={14} /> {label}
             </button>
