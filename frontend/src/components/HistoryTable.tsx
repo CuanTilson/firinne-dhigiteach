@@ -69,7 +69,7 @@ export const HistoryTable: React.FC<Props> = ({
                   <div className="h-12 w-12 rounded bg-slate-950 overflow-hidden border border-slate-700">
                     <img
                       src={`${API_BASE_URL}${record.thumbnail_url}`}
-                      alt="thumb"
+                      alt={`${record.media_type} thumbnail for ${record.filename}`}
                       className="h-full w-full object-cover"
                       onError={(e) => {
                         (e.target as HTMLImageElement).src =
@@ -105,22 +105,25 @@ export const HistoryTable: React.FC<Props> = ({
                   <div className="flex items-center justify-end gap-2">
                     <a
                       href={printPath}
-                      className="p-2 text-slate-300 hover:bg-slate-800 rounded-full transition-colors"
+                      className="p-2 text-slate-300 hover:bg-slate-800 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:ring-offset-2 focus:ring-offset-slate-900"
                       title="Report Layout"
+                      aria-label={`Open report view for ${record.filename}`}
                     >
                       <Printer size={18} />
                     </a>
                     <Link
                       to={detailPath}
-                      className="p-2 text-cyan-400 hover:bg-cyan-900/30 rounded-full transition-colors"
+                      className="p-2 text-cyan-400 hover:bg-cyan-900/30 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:ring-offset-2 focus:ring-offset-slate-900"
                       title="View Details"
+                      aria-label={`View details for ${record.filename}`}
                     >
                       <Eye size={18} />
                     </Link>
                     <button
                       onClick={() => onDelete(record.id, record.media_type)}
-                      className="p-2 text-red-400 hover:bg-red-900/30 rounded-full transition-colors"
+                      className="p-2 text-red-400 hover:bg-red-900/30 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-rose-500 focus:ring-offset-2 focus:ring-offset-slate-900"
                       title="Delete Record"
+                      aria-label={`Delete record for ${record.filename}`}
                     >
                       <Trash2 size={18} />
                     </button>
