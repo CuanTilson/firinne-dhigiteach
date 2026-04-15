@@ -257,9 +257,7 @@ export const Layout: React.FC = () => {
           </div>
           <div className="mt-3 text-sm text-slate-300">
             Status:{" "}
-            <span className="text-cyan-300 font-medium">
-              {jobToast.status}
-            </span>
+            <span className="text-cyan-300 font-medium">{jobToast.status}</span>
           </div>
           {jobToast.status === "completed" && jobToast.resultId && (
             <button
