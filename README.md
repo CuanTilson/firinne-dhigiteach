@@ -3,6 +3,7 @@
 A legal-oriented prototype for assessing whether digital media is authentic, AI-generated, or modified.
 
 The system currently supports:
+
 - image analysis with explainable forensic outputs
 - video analysis with sampled frame review
 - standalone and extracted-audio analysis with waveform and spectrogram outputs
@@ -16,6 +17,7 @@ The project is being delivered in weekly stages for a final-year dissertation, w
 ## Current Status
 
 Implemented now:
+
 - FastAPI backend for image and video analysis
 - FastAPI backend audio-analysis path and audio report endpoint
 - React frontend for upload, review, history, and reporting
@@ -58,14 +60,17 @@ npm run dev
 ```
 
 Frontend default URL:
+
 - `http://localhost:5173`
 
 Backend default URL:
+
 - `http://localhost:8000`
 
 ## Docker
 
 The repository now includes:
+
 - `Dockerfile.backend`
 - `Dockerfile.frontend`
 - `docker-compose.yml`
@@ -77,10 +82,12 @@ docker compose up --build
 ```
 
 Container URLs:
+
 - frontend: `http://localhost:5173`
 - backend: `http://localhost:8000`
 
 Important Docker notes:
+
 - the compose setup mounts:
   - `./backend/storage`
   - `./backend/database`
@@ -98,6 +105,7 @@ Important Docker notes:
 
 Backend configuration is driven by `backend/.env`.
 Key variables:
+
 - `FD_ADMIN_KEY`
 - `FD_API_KEY`
 - `FD_CORS_ORIGINS`
@@ -112,6 +120,7 @@ Key variables:
 
 Frontend configuration is driven by `frontend/.env`.
 Key variables:
+
 - `VITE_API_BASE_URL`
 - `VITE_API_KEY`
 - `VITE_ADMIN_KEY`
@@ -120,9 +129,11 @@ Key variables:
 
 The backend still depends on the CNNDetection vendor weights for the current forensic image pipeline.
 Expected path:
+
 - `vendor/CNNDetection/weights/blur_jpg_prob0.5.pth`
 
 The runtime comparison path for the self-trained detector now defaults to the corrected broader-data run:
+
 - `artifacts/model_a_v2_1_gpu/model_a_best.pt`
 - `artifacts/model_a_v2_1_gpu/run_manifest.json`
 
@@ -134,6 +145,7 @@ comparison checkpoint while keeping the main production decision path unchanged.
 `ffmpeg` is used for media decoding and extraction, not for the core scoring logic.
 
 Current behavior:
+
 - `.wav` uploads:
   - deep waveform analysis without `ffmpeg`
 - `.mp3`, `.m4a`, `.flac` uploads:
@@ -143,6 +155,7 @@ Current behavior:
   - extracted-audio analysis requires `ffmpeg`
 
 The backend resolves `ffmpeg` in this order:
+
 1. settings page override
 2. `FD_FFMPEG_PATH`
 3. system `PATH`
@@ -151,6 +164,7 @@ The backend resolves `ffmpeg` in this order:
 If auto-discovery fails, set the full `ffmpeg.exe` path in the settings page.
 
 Recommended explicit path on Windows:
+
 - `C:\\ffmpeg\\bin\\ffmpeg.exe`
 
 If you clone the project fresh, initialize submodules first:
@@ -162,9 +176,11 @@ git submodule update --init --recursive
 ## Documentation Map
 
 Start here for project docs:
+
 - `docs/README.md`
 
 High-value references:
+
 - `docs/project-status.md` - current project state
 - `docs/project-comprehensive-reference.md` - full project-wide technical and methodological reference
 - `docs/project-component-explainer.md` - presentation-ready explainer
