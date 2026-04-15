@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { getAuditLogs } from "../services/api";
 import type { AuditLogEntry } from "../types";
@@ -129,7 +129,7 @@ export const AuditLogPage: React.FC = () => {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
 
-  const fetchLogs = async (isManualRefresh = false) => {
+  const fetchLogs = useCallback(async (isManualRefresh = false) => {
     if (isManualRefresh) setRefreshing(true);
     else setLoading(true);
 
@@ -143,11 +143,11 @@ export const AuditLogPage: React.FC = () => {
       setLoading(false);
       setRefreshing(false);
     }
-  };
+  }, [page]);
 
   useEffect(() => {
     fetchLogs();
-  }, [page]);
+  }, [fetchLogs]);
 
   const stats = useMemo(() => {
     const completed = logs.filter((log) =>
