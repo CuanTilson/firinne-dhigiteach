@@ -32,18 +32,21 @@ export const AnalysisProvenancePanel: React.FC<Props> = ({
   compact = false,
 }) => {
   const containerClass = compact
-    ? "border border-slate-200 rounded-lg p-4 space-y-3"
-    : "fd-card p-4 space-y-3";
+    ? "rounded-2xl border border-slate-200 p-4 space-y-3"
+    : "rounded-3xl border border-slate-800/80 bg-slate-950/55 p-5 shadow-[0_10px_30px_rgba(2,6,23,0.28)]";
   const titleClass = compact
-    ? "text-xs uppercase tracking-wider text-slate-500"
-    : "fd-section-title";
-  const labelClass = "text-xs uppercase tracking-wider text-slate-500";
-  const valueClass = compact ? "text-sm text-slate-800" : "text-sm text-slate-200";
+    ? "text-xs uppercase tracking-[0.18em] text-slate-500"
+    : "text-[11px] uppercase tracking-[0.2em] text-slate-500";
+  const valueClass = compact
+    ? "mt-1 break-all text-sm text-slate-800"
+    : "mt-1 break-all text-sm text-slate-200";
+  const labelClass = "text-xs uppercase tracking-[0.16em] text-slate-500";
 
   return (
     <div className={containerClass}>
       <div className={titleClass}>{title}</div>
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Field
           label="Detector"
           value={formatValue(detector?.display_name || detector?.name)}
@@ -66,7 +69,7 @@ export const AnalysisProvenancePanel: React.FC<Props> = ({
           label="Weights SHA-256"
           value={formatValue(detector?.weights?.sha256)}
           labelClass={labelClass}
-          valueClass={valueClass}
+          valueClass={`${valueClass} font-mono text-[13px]`}
         />
         <Field
           label="Fusion Mode"
@@ -92,6 +95,6 @@ const Field = ({
 }) => (
   <div>
     <div className={labelClass}>{label}</div>
-    <div className={`${valueClass} mt-1 break-all`}>{value}</div>
+    <div className={valueClass}>{value}</div>
   </div>
 );
