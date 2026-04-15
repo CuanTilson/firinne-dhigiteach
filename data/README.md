@@ -1,71 +1,59 @@
-# Data Workflow
+﻿# Data Workflow
 
-This project keeps raw datasets outside the repository and stores only manifests, validation outputs, and helper scripts in git.
+Raw datasets are not stored in this repository. The project stores scripts and CSV/JSON manifests that describe how training and evaluation data was selected.
 
-## Storage Policy
+## Stored Here
 
-Do not copy raw datasets into the repository.
-Use an external or secondary drive instead.
+```text
+data/scripts/      manifest building, validation, and coverage-audit scripts
+data/manifests/    generated CSV manifests and dataset summaries
+data/README.md     this workflow note
+```
 
-Example layout:
-- `D:/firinne_datasets/genimage/...`
-- `D:/firinne_datasets/kaggle/...`
+## Raw Dataset Location
 
-The repository keeps:
-- `data/scripts/` - manifest and validation scripts
-- `data/manifests/` - generated CSV manifests and validation JSON
-- `data/README.md` - workflow reference
+Use an external location for raw datasets, for example:
 
-## Current Dataset Scope
+```text
+D:/firinne_datasets/genimage/...
+D:/firinne_datasets/kaggle/...
+```
 
-Primary training dataset:
-- GenImage subset
-  - baseline generators:
-    - `Midjourney`
-    - `stable_diffusion_v_1_5`
-  - current broader `Model A v2.1` generators:
-    - `ADM`
-    - `glide`
-    - `Midjourney`
-    - `stable_diffusion_v_1_5`
+## Current Model A v2.1 Dataset Scope
 
-External evaluation dataset:
-- Kaggle AI-vs-Human dataset
-  - labeled `train.csv`
-  - unlabeled `test.csv` is not used for supervised evaluation
+Training generators:
+
+```text
+ADM
+glide
+Midjourney
+stable_diffusion_v_1_5
+```
+
+External evaluation:
+
+```text
+Kaggle AI-vs-Human cleaned evaluation manifest
+```
+
+`BigGAN` was downloaded but excluded from the final v2.1 run because validation removed the intended AI samples from the cleaned split.
 
 ## Manifest Schema
 
-All manifests use:
-- `filepath`
-- `label`
-- `source`
-- `generator`
-- `split`
+Manifests use:
 
-Labels are binary:
-- `real`
-- `ai`
-
-## Build Manifests
-
-### Baseline manifest build
-
-```powershell
-python data/scripts/build_week2_manifests.py `
-  --genimage-root "D:/firinne_datasets/genimage" `
-  --kaggle-csv-dir "D:/firinne_datasets/kaggle" `
-  --kaggle-train-images "D:/firinne_datasets/kaggle/train_data" `
-  --kaggle-test-images "D:/firinne_datasets/kaggle/test_data_v2" `
-  --generators Midjourney stable_diffusion_v_1_5 `
-  --seed 2026 `
-  --max-per-class 2000
+```text
+filepath,label,source,generator,split
 ```
 
-### Broader `Model A v2.1` manifest build
+Labels:
 
-Use this when you want to test whether broader generator diversity improves external
-generalization without changing the training code.
+```text
+real
+ai
+```
+
+## Build Model A v2.1 Manifests
 
 ```powershell
 python data/scripts/build_week2_manifests.py `
@@ -84,25 +72,16 @@ python data/scripts/build_week2_manifests.py `
 
 ```powershell
 python data/scripts/validate_manifest_images.py `
-  --input data/manifests/genimage_train.csv `
-  --output data/manifests/genimage_train.cleaned.csv `
-  --report data/manifests/genimage_train.validation.json `
+  --input data/manifests/model_a_v2_1/genimage_train.csv `
+  --output data/manifests/model_a_v2_1/genimage_train.cleaned.csv `
+  --report data/manifests/model_a_v2_1/genimage_train.validation.json `
   --min-width 256 `
   --min-height 256
 ```
 
-Repeat validation for the validation, test, and Kaggle manifests.
+Repeat for validation and test manifests.
 
-For the broader `Model A v2.1` experiment, use the same validator against:
-- `data/manifests/model_a_v2_1/genimage_train.csv`
-- `data/manifests/model_a_v2_1/genimage_val.csv`
-- `data/manifests/model_a_v2_1/genimage_test.csv`
-- `data/manifests/kaggle_external_eval.csv`
-
-## Audit Generator Coverage After Validation
-
-Do not assume the cleaned manifests still preserve the intended generator mix. Run a coverage
-audit after validation and before training:
+## Audit Coverage
 
 ```powershell
 python data/scripts/audit_manifest_coverage.py `
@@ -117,28 +96,11 @@ python data/scripts/audit_manifest_coverage.py `
   --output-md artifacts/model_a_v2_1_gpu/manifest_coverage_audit.md
 ```
 
-If any expected `generator:label` pair disappears after validation, do not treat the run as the
-final broader-dataset experiment. Fix the dataset composition first and rerun.
+## Locked Rules
 
-## Current Locked Rules
-
-- Seed: `2026`
-- Minimum resolution: `256x256`
-- GenImage split ratio: `70/15/15`
-- Kaggle is used as external evaluation, not primary training
-
-## Outputs You Should Expect
-
-- `genimage_train.cleaned.csv`
-- `genimage_val.cleaned.csv`
-- `genimage_test.cleaned.csv`
-- `kaggle_external_eval.cleaned.csv`
-- matching `*.validation.json` reports
-- `dataset_stats.json`
-
-For the current broader-data run, the same files should exist under:
-- `data/manifests/model_a_v2_1/`
-
-Historical note:
-- `data/manifests/model_a_v2/` is kept as an intermediate experiment record only
-- it is not the current preferred broader-data manifest set
+```text
+seed: 2026
+minimum image size: 256x256
+split ratio: 70/15/15
+external evaluation: Kaggle cleaned manifest
+```

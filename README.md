@@ -1,53 +1,65 @@
-﻿# Firinne Dhigiteach
+﻿# Fírinne Dhigiteach
 
-A legal-oriented prototype for assessing whether digital media is authentic, AI-generated, or modified.
+Fírinne Dhigiteach is a multimodal forensic decision-support prototype for analysing images, video, and audio. It combines a self-trained image classifier with forensic signals such as metadata checks, C2PA provenance parsing, JPEG structure analysis, ELA, noise residual analysis, audio signal diagnostics, hashing, audit logging, and report generation.
 
-The system currently supports:
+The system is intended as decision-support evidence, not as a definitive legal determination.
 
-- image analysis with explainable forensic outputs
-- video analysis with sampled frame review
-- standalone and extracted-audio analysis with waveform and spectrogram outputs
-- case history, audit log, settings, and print/report views
-- reproducible Model A training from CSV manifests
-- runtime-selectable comparison detector path for the self-trained `Model A`
-- backend integration tests for core routes
+## Main Features
 
-The project is being delivered in weekly stages for a final-year dissertation, with traceability and reproducibility treated as first-class requirements.
-
-## Current Status
-
-Implemented now:
-
-- FastAPI backend for image and video analysis
-- FastAPI backend audio-analysis path and audio report endpoint
-- React frontend for upload, review, history, and reporting
-- forensic signals including GradCAM, ELA, metadata checks, C2PA, JPEG analysis, noise residuals, and audio signal diagnostics
-- Week 2 data pipeline for reproducible image-model training
-- Week 3 Model A baseline training scaffold and first baseline run
-- Week 5 corrected broader-data `Model A v2.1` experiment and coverage audit
-- Week 6 backend integration test pack
-- Week 7 final closeout docs for method summary, evidence indexing, comparison framing, limitations, and demo prep
+- Image analysis with ML probability, forensic fusion, Grad-CAM, ELA, metadata, JPEG, C2PA, noise, and watermark checks.
+- Video analysis through sampled frame analysis and optional extracted-audio triage.
+- Standalone audio analysis with waveform, spectrogram, segmented signal features, and FFmpeg-based decoding when available.
+- Case history, audit log, settings, applied-settings snapshots, and print/PDF-style report views.
+- Runtime use of the self-trained `Model A v2.1` detector when the model artefacts are present.
+- Backend integration tests and consolidated Chapter 6 evaluation artefacts.
 
 ## Repository Layout
 
 ```text
-backend/                 FastAPI app, forensic analysis, training scaffolds
-frontend/                React frontend
-data/                    manifests, data scripts, and data workflow docs
-artifacts/               local training outputs (not committed)
-docs/                    project documentation by topic and week
+backend/                 FastAPI API, analysis pipeline, database models, tests, training tools
+frontend/                React/Vite user interface
+data/                    Dataset manifest scripts and manifest outputs
+artifacts/               Local model/evaluation artefacts; not committed by default
+docs/                    Local dissertation/project notes; not required to run the app
+Dockerfile.backend       Backend container definition
+Dockerfile.frontend      Frontend container definition
+docker-compose.yml       Local Docker Compose setup
 ```
 
-## Quick Start
+## Required Model Artefacts
+
+The default image detector is the self-trained `Model A v2.1`. For full functionality, place the model artefacts at:
+
+```text
+artifacts/model_a_v2_1_gpu/model_a_best.pt
+artifacts/model_a_v2_1_gpu/run_manifest.json
+```
+
+Useful evaluation outputs are stored under:
+
+```text
+artifacts/model_a_v2_1_gpu/exports/
+artifacts/chapter6_evaluation/
+```
+
+If these artefacts are missing, image analysis will not have an available detector.
+
+## Local Development
 
 ### Backend
 
 ```powershell
 cd backend
 python -m venv .venv
-./.venv/Scripts/python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
 cd ..
-./backend/.venv/Scripts/python.exe -m uvicorn backend.main:app --reload
+.\backend\.venv\Scripts\python.exe -m uvicorn backend.main:app --reload
+```
+
+Backend URL:
+
+```text
+http://localhost:8000
 ```
 
 ### Frontend
@@ -58,21 +70,19 @@ npm install
 npm run dev
 ```
 
-Frontend default URL:
+Frontend URL:
 
-- `http://localhost:5173`
+```text
+http://localhost:5173
+```
 
-Backend default URL:
+Run the production frontend build from the `frontend/` directory:
 
-- `http://localhost:8000`
+```powershell
+npm run build
+```
 
 ## Docker
-
-The repository now includes:
-
-- `Dockerfile.backend`
-- `Dockerfile.frontend`
-- `docker-compose.yml`
 
 Start both services:
 
@@ -82,78 +92,81 @@ docker compose up --build
 
 Container URLs:
 
-- frontend: `http://localhost:5173`
-- backend: `http://localhost:8000`
+```text
+frontend: http://localhost:5173
+backend:  http://localhost:8000
+```
 
-Important Docker notes:
+Docker Compose mounts:
 
-- the compose setup mounts:
-  - `./backend/storage`
-  - `./backend/database`
-  - `./artifacts`
-- self-trained `Model A` artifacts are not baked into the image; they are expected via the mounted `artifacts/` folder
-- compose is now configured to prefer `Model A v2.1` by default:
-  - `FD_IMAGE_DETECTOR=model_a`
-  - `FD_MODEL_A_WEIGHTS=/app/artifacts/model_a_v2_1_gpu/model_a_best.pt`
-  - `FD_MODEL_A_RUN_MANIFEST=/app/artifacts/model_a_v2_1_gpu/run_manifest.json`
-- if those files are missing in the mounted `./artifacts` folder, `model_a` will not be available
+```text
+./backend/storage
+./backend/database
+./artifacts
+```
+
+The model artefacts are not baked into the Docker image. They are expected in the local `artifacts/` folder and mounted into the backend container.
 
 ## Configuration
 
-Backend configuration is driven by `backend/.env`.
-Key variables:
+Backend configuration is read from `backend/.env` when present.
 
-- `FD_ADMIN_KEY`
-- `FD_API_KEY`
-- `FD_CORS_ORIGINS`
-- `FD_RATE_LIMIT_PER_MINUTE`
-- `FD_MAX_IMAGE_MB`
-- `FD_MAX_VIDEO_MB`
-- `FD_MAX_UPLOAD_MB`
-- `FD_RETENTION_DAYS`
-- `FD_RETENTION_INTERVAL_HOURS`
-- `FD_IMAGE_DETECTOR`
-- `FD_FFMPEG_PATH`
+Common backend variables:
 
-Frontend configuration is driven by `frontend/.env`.
-Key variables:
+```text
+FD_ADMIN_KEY
+FD_API_KEY
+FD_CORS_ORIGINS
+FD_IMAGE_DETECTOR
+FD_MODEL_A_WEIGHTS
+FD_MODEL_A_RUN_MANIFEST
+FD_FFMPEG_PATH
+FD_MAX_IMAGE_MB
+FD_MAX_VIDEO_MB
+FD_MAX_AUDIO_MB
+```
 
-- `VITE_API_BASE_URL`
-- `VITE_API_KEY`
-- `VITE_ADMIN_KEY`
+Frontend configuration is read from `frontend/.env` when present.
 
-## Model Dependencies
+Common frontend variables:
 
-Required for the default self-trained detector path:
-
-- `artifacts/model_a_v2_1_gpu/model_a_best.pt`
-- `artifacts/model_a_v2_1_gpu/run_manifest.json`
-
-This does not replace the production rule-based fusion path. Detector selection controls the image-classifier signal used by that path.
+```text
+VITE_API_BASE_URL
+VITE_API_KEY
+VITE_ADMIN_KEY
+```
 
 ## Audio and FFmpeg
 
-`ffmpeg` is used for media decoding and extraction, not for the core scoring logic.
+FFmpeg is used for audio/video decoding and extraction.
 
-Current behavior:
+- `.wav` files can be analysed without FFmpeg.
+- `.mp3`, `.m4a`, and `.flac` get deeper waveform analysis when FFmpeg is available.
+- Video extracted-audio analysis requires FFmpeg.
 
-- `.wav` uploads:
-  - deep waveform analysis without `ffmpeg`
-- `.mp3`, `.m4a`, `.flac` uploads:
-  - with `ffmpeg`: decoded to mono 16 kHz WAV and analysed with the deeper waveform path
-  - without `ffmpeg`: metadata-first triage only
-- video uploads:
-  - extracted-audio analysis requires `ffmpeg`
+Recommended Windows path if auto-discovery fails:
 
-The backend resolves `ffmpeg` in this order:
+```text
+C:\ffmpeg\bin\ffmpeg.exe
+```
 
-1. settings page override
-2. `FD_FFMPEG_PATH`
-3. system `PATH`
-4. common Windows install locations
+This can be set through the Settings page or with `FD_FFMPEG_PATH`.
 
-If auto-discovery fails, set the full `ffmpeg.exe` path in the settings page.
+## Tests
 
-Recommended explicit path on Windows:
+Run backend tests from the repository root:
 
-- `C:\\ffmpeg\\bin\\ffmpeg.exe`
+```powershell
+.\backend\.venv\Scripts\python.exe -m unittest backend.tests.test_upload_and_metadata backend.tests.test_audio_fallbacks backend.tests.test_api_integration
+```
+
+Run frontend type/build checks:
+
+```powershell
+cd frontend
+npm run build
+```
+
+## Submission Notes
+
+For a Brightspace code ZIP, include source code and the final `artifacts/model_a_v2_1_gpu/` folder. Do not include virtual environments, `node_modules`, local databases, runtime storage files, or raw datasets.
