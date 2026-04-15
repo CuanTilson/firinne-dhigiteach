@@ -25,13 +25,17 @@ const inlineImages = async (element: HTMLElement) => {
     imgs.map(async (img) => {
       const src = img.currentSrc || img.src;
       if (!src || src.startsWith("data:")) return;
+
       try {
         const headers: Record<string, string> = {};
         if (API_KEY) headers["x-api-key"] = API_KEY;
+
         const response = await fetch(src, { headers });
         if (!response.ok) return;
+
         const blob = await response.blob();
         const dataUrl = await blobToDataUrl(blob);
+
         originals.push({ img, src: img.src });
         img.src = dataUrl;
       } catch {
@@ -49,6 +53,7 @@ const inlineImages = async (element: HTMLElement) => {
 
 const waitForImageDecode = async (element: HTMLElement) => {
   const imgs = Array.from(element.querySelectorAll("img"));
+
   await Promise.all(
     imgs.map(async (img) => {
       try {
@@ -59,6 +64,7 @@ const waitForImageDecode = async (element: HTMLElement) => {
             img.addEventListener("error", done, { once: true });
           });
         }
+
         if ("decode" in img) {
           await img.decode().catch(() => undefined);
         }
@@ -75,6 +81,7 @@ const calculateSafeScale = (element: HTMLElement) => {
   const maxSideScale = 16384 / Math.max(width, height);
   const maxAreaScale = Math.sqrt(268435456 / (width * height));
   const safeScale = Math.min(2, maxSideScale, maxAreaScale);
+
   return Number.isFinite(safeScale) && safeScale > 0 ? safeScale : 1;
 };
 
@@ -104,15 +111,19 @@ const expandScrollableContent = (doc: Document) => {
     ".overflow-x-auto",
     "pre",
   ];
-  const nodes = Array.from(
-    doc.querySelectorAll<HTMLElement>(selectors.join(","))
-  );
+
+  const nodes = Array.from(doc.querySelectorAll<HTMLElement>(selectors.join(",")));
 
   nodes.forEach((node) => {
     node.style.maxHeight = "none";
     node.style.height = "auto";
     node.style.overflow = "visible";
   });
+};
+
+const removeIgnoredNodes = (doc: Document) => {
+  const ignored = Array.from(doc.querySelectorAll("[data-pdf-ignore]"));
+  ignored.forEach((node) => node.remove());
 };
 
 export const exportElementToPdf = async (
@@ -138,10 +149,10 @@ export const exportElementToPdf = async (
         onclone: (clonedDoc) => {
           normalizeUnsupportedColors(clonedDoc);
           expandScrollableContent(clonedDoc);
+          removeIgnoredNodes(clonedDoc);
         },
       });
     } catch {
-      // Fallback: retry with lower scale if the first render exceeded limits.
       canvas = await html2canvas(element, {
         scale: 1,
         useCORS: true,
@@ -153,6 +164,7 @@ export const exportElementToPdf = async (
         onclone: (clonedDoc) => {
           normalizeUnsupportedColors(clonedDoc);
           expandScrollableContent(clonedDoc);
+          removeIgnoredNodes(clonedDoc);
         },
       });
     }
@@ -178,10 +190,12 @@ export const exportElementToPdf = async (
       const pageCanvas = document.createElement("canvas");
       pageCanvas.width = canvas.width;
       pageCanvas.height = sliceHeightPx;
+
       const ctx = pageCanvas.getContext("2d");
       if (!ctx) {
         throw new Error("Could not build PDF page canvas.");
       }
+
       ctx.fillStyle = "#ffffff";
       ctx.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
       ctx.drawImage(
@@ -202,6 +216,7 @@ export const exportElementToPdf = async (
       if (pageIndex > 0) {
         pdf.addPage();
       }
+
       pdf.addImage(pageImage, "PNG", margin, margin, contentWidth, renderedHeightMm);
 
       renderedHeightPx += sliceHeightPx;
@@ -211,6 +226,7 @@ export const exportElementToPdf = async (
     const appendixNodes = Array.from(
       element.querySelectorAll<HTMLElement>("[data-pdf-append-text]")
     );
+
     const appendixText = appendixNodes
       .map((node) => (node.textContent || "").trim())
       .filter(Boolean)
@@ -229,6 +245,7 @@ export const exportElementToPdf = async (
       pdf.text("Metadata Appendix", margin, margin);
 
       const lines = pdf.splitTextToSize(appendixText, maxWidth);
+
       for (const line of lines) {
         if (y > pageBottom) {
           pdf.addPage();
@@ -236,6 +253,7 @@ export const exportElementToPdf = async (
           pdf.setFontSize(9);
           y = startY;
         }
+
         pdf.text(line, margin, y);
         y += lineHeight;
       }
