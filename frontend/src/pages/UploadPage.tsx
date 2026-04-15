@@ -9,8 +9,6 @@ import {
 } from "../services/api";
 import type {
   AnalysisResult,
-  AudioAnalysisDetail,
-  VideoAnalysisDetail,
 } from "../types";
 import { AnalysisDashboard } from "../components/AnalysisDashboard";
 import { Button } from "../components/ui/Button";
