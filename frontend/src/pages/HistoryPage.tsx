@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback } from "react";
+import { useSearchParams } from "react-router-dom";
 import { getRecords, deleteRecord } from "../services/api";
 import type {
   AnalysisRecordSummary,
@@ -22,6 +23,12 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
   title = "Analysis History",
   description = "Archive of all forensic investigations.",
 }) => {
+  const [searchParams] = useSearchParams();
+  const queryMediaType = searchParams.get("media_type") as MediaType | null;
+  const scopedMediaType =
+    queryMediaType === "image" || queryMediaType === "video" || queryMediaType === "audio"
+      ? queryMediaType
+      : initialMediaType;
   const [records, setRecords] = useState<AnalysisRecordSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -33,7 +40,7 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
   const [classification, setClassification] = useState<ClassificationType | "">(
     ""
   );
-  const [mediaType, setMediaType] = useState<MediaType | "">(initialMediaType);
+  const [mediaType, setMediaType] = useState<MediaType | "">(scopedMediaType);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
 
@@ -62,9 +69,9 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
   }, [fetchData]);
 
   useEffect(() => {
-    setMediaType(initialMediaType);
+    setMediaType(scopedMediaType);
     setPage(1);
-  }, [initialMediaType]);
+  }, [scopedMediaType]);
 
   const handleDelete = async (
     id: number,
@@ -137,7 +144,7 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
                 onChange={(e) =>
                   setMediaType(e.target.value as MediaType | "")
                 }
-                disabled={initialMediaType !== ""}
+                disabled={scopedMediaType !== ""}
                 className="w-full bg-slate-900 border border-slate-700 rounded-lg py-2 pl-10 pr-4 text-sm text-white focus:ring-2 focus:ring-cyan-500 focus:outline-none appearance-none"
               >
                 <option value="">All Media</option>
@@ -146,9 +153,9 @@ export const HistoryPage: React.FC<HistoryPageProps> = ({
                 <option value="audio">Audio</option>
               </select>
             </div>
-            {initialMediaType ? (
+            {scopedMediaType ? (
               <div className="mt-1 text-[11px] text-slate-500">
-                This view is scoped to {initialMediaType} records.
+                This view is scoped to {scopedMediaType} records.
               </div>
             ) : null}
           </div>

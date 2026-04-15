@@ -35,7 +35,7 @@ export const PrintAudioPage: React.FC = () => {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center text-red-500 gap-4">
         <p>{error || "Record not found"}</p>
-        <Link to="/audio-history" className="text-cyan-600 hover:underline">Back to Audio History</Link>
+        <Link to="/history?media_type=audio" className="text-cyan-600 hover:underline">Back to Case History</Link>
       </div>
     );
   }

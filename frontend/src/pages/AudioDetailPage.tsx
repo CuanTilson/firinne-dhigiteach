@@ -56,8 +56,8 @@ export const AudioDetailPage: React.FC = () => {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center text-red-400 gap-4">
         <p>{error || "Record not found"}</p>
-        <Link to="/audio-history" className="text-cyan-400 hover:underline">
-          Back to Audio History
+        <Link to="/history?media_type=audio" className="text-cyan-400 hover:underline">
+          Back to Case History
         </Link>
       </div>
     );
@@ -67,8 +67,8 @@ export const AudioDetailPage: React.FC = () => {
 
   return (
     <CasePageScaffold
-      backTo="/audio-history"
-      backLabel="Back to Audio History"
+      backTo="/history?media_type=audio"
+      backLabel="Back to Case History"
       header={
         <CaseHeader
           title="Audio Analysis"

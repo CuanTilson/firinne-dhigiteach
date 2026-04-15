@@ -11,7 +11,6 @@ import { PrintVideoPage } from "./pages/PrintVideoPage";
 import { PrintAudioPage } from "./pages/PrintAudioPage";
 import { AuditLogPage } from "./pages/AuditLogPage";
 import { SettingsPage } from "./pages/SettingsPage";
-import { AudioHistoryPage } from "./pages/AudioHistoryPage";
 
 const App: React.FC = () => {
   return (
@@ -23,7 +22,7 @@ const App: React.FC = () => {
         <Route path="/" element={<Layout />}>
           <Route index element={<UploadPage />} />
           <Route path="history" element={<HistoryPage />} />
-          <Route path="audio-history" element={<AudioHistoryPage />} />
+          <Route path="audio-history" element={<Navigate to="/history?media_type=audio" replace />} />
           <Route path="audit" element={<AuditLogPage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="records/:id" element={<DetailPage />} />
