@@ -36,7 +36,6 @@ frontend/                React frontend
 data/                    manifests, data scripts, and data workflow docs
 artifacts/               local training outputs (not committed)
 docs/                    project documentation by topic and week
-vendor/CNNDetection/     third-party model dependency
 ```
 
 ## Quick Start
@@ -91,15 +90,13 @@ Important Docker notes:
 - the compose setup mounts:
   - `./backend/storage`
   - `./backend/database`
-  - `./vendor/CNNDetection/weights`
   - `./artifacts`
-- vendor `CNNDetection` weights are required for backend startup
 - self-trained `Model A` artifacts are not baked into the image; they are expected via the mounted `artifacts/` folder
 - compose is now configured to prefer `Model A v2.1` by default:
   - `FD_IMAGE_DETECTOR=model_a`
   - `FD_MODEL_A_WEIGHTS=/app/artifacts/model_a_v2_1_gpu/model_a_best.pt`
   - `FD_MODEL_A_RUN_MANIFEST=/app/artifacts/model_a_v2_1_gpu/run_manifest.json`
-- if those files are missing in the mounted `./artifacts` folder, `model_a` will not be available and the backend will fall back to the vendor detector path
+- if those files are missing in the mounted `./artifacts` folder, `model_a` will not be available
 
 ## Configuration
 
@@ -125,20 +122,14 @@ Key variables:
 - `VITE_API_KEY`
 - `VITE_ADMIN_KEY`
 
-## Model Dependency
+## Model Dependencies
 
-The backend still depends on the CNNDetection vendor weights for the current forensic image pipeline.
-Expected path:
-
-- `vendor/CNNDetection/weights/blur_jpg_prob0.5.pth`
-
-The runtime comparison path for the self-trained detector now defaults to the corrected broader-data run:
+Required for the default self-trained detector path:
 
 - `artifacts/model_a_v2_1_gpu/model_a_best.pt`
 - `artifacts/model_a_v2_1_gpu/run_manifest.json`
 
-This does not replace the production rule-based path. It uses the stronger corrected `Model A`
-comparison checkpoint while keeping the main production decision path unchanged.
+This does not replace the production rule-based fusion path. Detector selection controls the image-classifier signal used by that path.
 
 ## Audio and FFmpeg
 
@@ -166,9 +157,3 @@ If auto-discovery fails, set the full `ffmpeg.exe` path in the settings page.
 Recommended explicit path on Windows:
 
 - `C:\\ffmpeg\\bin\\ffmpeg.exe`
-
-If you clone the project fresh, initialize submodules first:
-
-```powershell
-git submodule update --init --recursive
-```

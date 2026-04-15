@@ -94,7 +94,13 @@ from backend.analysis.audio import (
 )
 
 # ML model + explainability
-from backend.models.cnndetect_native import CNNDetectionModel
+try:
+    from backend.models.cnndetect_native import CNNDetectionModel
+except Exception as exc:
+    CNNDetectionModel = None
+    CNNDETECTION_IMPORT_ERROR = str(exc)
+else:
+    CNNDETECTION_IMPORT_ERROR = None
 from backend.models.model_a_native import ModelADetector
 from backend.explainability.gradcam import GradCAM
 
@@ -248,16 +254,25 @@ _ensure_sqlite_column("analysis_records", "applied_settings", "JSON")
 _ensure_sqlite_column("video_analysis_records", "applied_settings", "JSON")
 _ensure_sqlite_column("audio_analysis_records", "applied_settings", "JSON")
 
-# Load ML model once
-if not WEIGHTS.is_file():
-    raise RuntimeError(
-        f"Missing CNNDetection weights at {WEIGHTS}. See README for download steps."
-    )
-try:
-    MODEL_WEIGHTS_HASHES = file_hashes(WEIGHTS)
-except Exception:
-    MODEL_WEIGHTS_HASHES = {"sha256": "unknown", "md5": "unknown"}
-cnndetector = CNNDetectionModel(weights_path=WEIGHTS)
+# Load ML models once. CNNDetection is optional so the project can run with
+# Model A only when the third-party vendor dependency is not distributed.
+MODEL_WEIGHTS_HASHES = {"sha256": "missing", "md5": "missing"}
+cnndetector = None
+CNNDETECTION_LOAD_ERROR = CNNDETECTION_IMPORT_ERROR
+if CNNDetectionModel is not None and WEIGHTS.is_file():
+    try:
+        MODEL_WEIGHTS_HASHES = file_hashes(WEIGHTS)
+    except Exception:
+        MODEL_WEIGHTS_HASHES = {"sha256": "unknown", "md5": "unknown"}
+    try:
+        cnndetector = CNNDetectionModel(weights_path=WEIGHTS)
+        CNNDETECTION_LOAD_ERROR = None
+    except Exception as exc:
+        CNNDETECTION_LOAD_ERROR = str(exc)
+elif CNNDetectionModel is None:
+    CNNDETECTION_LOAD_ERROR = CNNDETECTION_IMPORT_ERROR or "CNNDetection module is unavailable."
+else:
+    CNNDETECTION_LOAD_ERROR = f"Missing CNNDetection weights at {WEIGHTS}."
 model_a_detector = (
     ModelADetector(MODEL_A_WEIGHTS, MODEL_A_RUN_MANIFEST)
     if MODEL_A_WEIGHTS.is_file()
@@ -316,7 +331,8 @@ def _toolchain_snapshot() -> dict:
         "ffmpeg_available": bool(resolved_ffmpeg),
         "ffmpeg_resolved_path": resolved_ffmpeg or "",
         "ffmpeg_configured_path": FFMPEG_PATH or "",
-        "cnndetection_available": True,
+        "cnndetection_available": cnndetector is not None,
+        "cnndetection_error": CNNDETECTION_LOAD_ERROR or "",
         "model_a_available": model_a_detector is not None,
     }
 
@@ -326,7 +342,7 @@ def _get_detector_registry() -> dict[str, dict]:
         "cnndetection": {
             "name": "cnndetection",
             "display_name": "CNNDetection",
-            "available": True,
+            "available": cnndetector is not None,
             "model_version": MODEL_VERSION,
             "dataset_version": DATASET_VERSION,
             "weights": MODEL_WEIGHTS_HASHES,
@@ -354,7 +370,13 @@ def _resolve_image_detector(detector_name: str | None = None) -> dict:
     candidate = registry.get(selected)
     if candidate and candidate["available"]:
         return candidate
-    return registry["cnndetection"]
+    for fallback_name in ("model_a", "cnndetection"):
+        fallback = registry.get(fallback_name)
+        if fallback and fallback["available"]:
+            return fallback
+    raise RuntimeError(
+        "No image detector is available. Provide Model A artifacts or the CNNDetection vendor dependency."
+    )
 
 
 def _default_settings_snapshot() -> dict:

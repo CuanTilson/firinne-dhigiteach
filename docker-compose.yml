@@ -16,7 +16,7 @@ services:
     volumes:
       - ./backend/storage:/app/backend/storage
       - ./backend/database:/app/backend/database
-      - ./vendor/CNNDetection/weights:/app/vendor/CNNDetection/weights:ro
+      - ./vendor:/app/vendor:ro
       - ./artifacts:/app/artifacts:ro
 
   frontend:
