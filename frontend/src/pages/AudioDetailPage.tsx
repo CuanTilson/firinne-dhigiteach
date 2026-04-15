@@ -6,9 +6,96 @@ import { CaseHeader } from "../components/CaseHeader";
 import { ChainOfCustody } from "../components/ChainOfCustody";
 import { AppliedSettingsPanel } from "../components/AppliedSettingsPanel";
 import { DecisionSummaryPanel } from "../components/DecisionSummaryPanel";
-import { fixPath } from "../constants";
 import { EvidenceStatusStrip } from "../components/EvidenceStatusStrip";
 import { CasePageScaffold } from "../components/CasePageScaffold";
+import { AudioEvidencePanel } from "../components/AudioEvidencePanel";
+
+const asRecord = (value: unknown): Record<string, unknown> | null =>
+  value && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : null;
+
+const formatClassification = (value?: string | null) => {
+  if (!value) return "Unavailable";
+  return value
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+};
+
+const getClassificationTone = (
+  classification?: string | null,
+): "good" | "warn" | "neutral" => {
+  if (classification === "likely_real") return "good";
+  if (classification === "likely_ai_generated") return "warn";
+  return "neutral";
+};
+
+const formatUnknown = (value: unknown, suffix?: string) => {
+  if (typeof value === "number") {
+    const formatted = Number.isInteger(value)
+      ? String(value)
+      : value.toFixed(3);
+    return suffix ? `${formatted} ${suffix}` : formatted;
+  }
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (typeof value === "string" && value.trim()) {
+    return suffix ? `${value} ${suffix}` : value;
+  }
+  return "Unavailable";
+};
+
+const formatNestedStat = (
+  source: Record<string, unknown>,
+  key: string,
+  stat: string,
+) => {
+  const nested = asRecord(source[key]);
+  return formatUnknown(nested?.[stat]);
+};
+
+const CompactField = ({
+  label,
+  value,
+  detail,
+  mono = false,
+}: {
+  label: string;
+  value: string;
+  detail?: string;
+  mono?: boolean;
+}) => (
+  <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
+    <div className="text-xs uppercase tracking-[0.16em] text-slate-500">
+      {label}
+    </div>
+    <div
+      className={`mt-1 text-slate-200 ${
+        mono ? "break-all font-mono text-[13px]" : ""
+      }`}
+    >
+      {value}
+    </div>
+    {detail ? (
+      <div className="mt-1 text-xs text-slate-500">{detail}</div>
+    ) : null}
+  </div>
+);
+
+const SectionCard = ({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) => (
+  <div className="rounded-3xl border border-slate-800/80 bg-slate-950/55 p-4 shadow-[0_10px_30px_rgba(2,6,23,0.28)]">
+    <div className="mb-3 text-[11px] uppercase tracking-[0.2em] text-slate-500">
+      {title}
+    </div>
+    {children}
+  </div>
+);
 
 export const AudioDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -18,7 +105,12 @@ export const AudioDetailPage: React.FC = () => {
 
   useEffect(() => {
     const fetchDetail = async () => {
-      if (!id) return;
+      if (!id) {
+        setError("No record id was provided.");
+        setLoading(false);
+        return;
+      }
+
       try {
         const data = await getAudioById(Number(id));
         setResult(data);
@@ -28,6 +120,7 @@ export const AudioDetailPage: React.FC = () => {
         setLoading(false);
       }
     };
+
     fetchDetail();
   }, [id]);
 
@@ -35,35 +128,42 @@ export const AudioDetailPage: React.FC = () => {
     const value = result?.audio_features?.findings;
     return Array.isArray(value) ? value.map(String) : [];
   }, [result]);
-  const segmentSummary =
-    result?.audio_features &&
-    typeof result.audio_features === "object" &&
-    typeof result.audio_features.segment_summary === "object"
-      ? (result.audio_features.segment_summary as Record<string, unknown>)
-      : null;
-  const toolchain =
-    result?.applied_settings &&
-    typeof result.applied_settings === "object" &&
-    typeof result.applied_settings.toolchain === "object"
-      ? (result.applied_settings.toolchain as Record<string, unknown>)
-      : null;
 
   if (loading) {
-    return <div className="min-h-screen flex items-center justify-center text-slate-400">Loading audio analysis #{id}...</div>;
-  }
-
-  if (error || !result) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center text-red-400 gap-4">
-        <p>{error || "Record not found"}</p>
-        <Link to="/history" className="text-cyan-400 hover:underline">
-          Back to Case History
-        </Link>
+      <div className="mx-auto max-w-7xl px-4 py-8 md:px-6">
+        <div className="rounded-3xl border border-slate-800/80 bg-slate-950/55 px-6 py-12 text-center text-slate-400">
+          Loading audio analysis #{id}...
+        </div>
       </div>
     );
   }
 
+  if (error || !result) {
+    return (
+      <div className="mx-auto max-w-7xl px-4 py-8 md:px-6">
+        <div className="rounded-3xl border border-red-500/20 bg-red-500/10 px-6 py-12 text-center">
+          <p className="text-red-300">{error || "Record not found."}</p>
+          <Link
+            to="/history"
+            className="mt-4 inline-flex text-cyan-300 underline-offset-4 hover:text-cyan-200 hover:underline"
+          >
+            Back to Case History
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  const segmentSummary = asRecord(result.audio_features?.segment_summary);
+  const toolchain = asRecord(asRecord(result.applied_settings)?.toolchain);
   const hashes = result.file_integrity?.hashes;
+  const channels =
+    typeof result.audio_metadata?.channels === "number"
+      ? `${result.audio_metadata.channels} channel${
+          result.audio_metadata.channels === 1 ? "" : "s"
+        }`
+      : "Channel count unavailable";
 
   return (
     <CasePageScaffold
@@ -91,20 +191,26 @@ export const AudioDetailPage: React.FC = () => {
           items={[
             {
               label: "Audio Verdict",
-              status: result.classification,
-              tone: result.forensic_score >= 0.7 ? "warn" : "neutral",
+              status: formatClassification(result.classification),
+              tone: getClassificationTone(result.classification),
               detail: `Score ${result.forensic_score.toFixed(3)}`,
             },
             {
               label: "Analysis Mode",
-              status: String(result.audio_features?.analysis_mode || "unknown"),
-              detail: formatUnknown(result.audio_metadata?.duration_seconds, "seconds"),
+              status: formatUnknown(result.audio_features?.analysis_mode),
+              detail: formatUnknown(
+                result.audio_metadata?.duration_seconds,
+                "seconds",
+              ),
             },
             {
               label: "Signal Metadata",
-              status: formatUnknown(result.audio_metadata?.sample_rate_hz, "Hz"),
+              status: formatUnknown(
+                result.audio_metadata?.sample_rate_hz,
+                "Hz",
+              ),
               tone: result.audio_metadata?.sample_rate_hz ? "good" : "warn",
-              detail: `${formatUnknown(result.audio_metadata?.channels)} channels`,
+              detail: channels,
             },
             {
               label: "Integrity",
@@ -126,107 +232,96 @@ export const AudioDetailPage: React.FC = () => {
       sidebar={
         <>
           <DecisionSummaryPanel
-            verdict={result.classification}
+            verdict={formatClassification(result.classification)}
             scoreLabel="Audio Forensic Score"
             scoreValue={result.forensic_score.toFixed(3)}
             rationale={[
-              `Analysis mode: ${String(result.audio_features?.analysis_mode || "unknown")}`,
-              `Duration: ${String(result.audio_metadata?.duration_seconds ?? "Unavailable")} seconds`,
-              `Sample rate: ${String(result.audio_metadata?.sample_rate_hz ?? "Unavailable")} Hz`,
-              ...(findings.length ? findings.slice(0, 3) : ["No dominant audio findings recorded."]),
+              `Analysis mode: ${formatUnknown(result.audio_features?.analysis_mode)}`,
+              `Duration: ${formatUnknown(result.audio_metadata?.duration_seconds, "seconds")}`,
+              `Sample rate: ${formatUnknown(result.audio_metadata?.sample_rate_hz, "Hz")}`,
+              ...(findings.length
+                ? findings.slice(0, 3)
+                : ["No dominant audio findings recorded."]),
             ]}
             note="This is an audio triage result and should be read with contextual forensic review."
           />
+
           <ChainOfCustody
             steps={[
-              { label: "Upload received", timestamp: result.created_at, status: "complete" },
-              { label: "Audio triage completed", timestamp: result.created_at, status: "complete" },
+              {
+                label: "Upload received",
+                timestamp: result.created_at,
+                status: "complete",
+              },
+              {
+                label: "Audio triage completed",
+                timestamp: result.created_at,
+                status: "complete",
+              },
             ]}
           />
+
           <AppliedSettingsPanel settings={result.applied_settings} />
         </>
       }
     >
-      <div className="grid grid-cols-1 xl:grid-cols-[1.1fr_0.9fr] gap-6">
-        <div className="fd-card p-4 space-y-4">
-          <div className="fd-section-title">Audio Evidence</div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-            <AudioField label="Classification" value={result.classification} />
-            <AudioField label="Forensic Score" value={result.forensic_score.toFixed(3)} />
-            <AudioField label="Analysis Mode" value={formatUnknown(result.audio_features?.analysis_mode)} />
-            <AudioField label="Duration" value={formatUnknown(result.audio_metadata?.duration_seconds, "seconds")} />
-            <AudioField label="Sample Rate" value={formatUnknown(result.audio_metadata?.sample_rate_hz, "Hz")} />
-            <AudioField label="Channels" value={formatUnknown(result.audio_metadata?.channels)} />
-            <AudioField label="Hashes Match" value={formatUnknown(result.file_integrity?.hashes_match)} />
-            <AudioField label="Peak Level" value={formatUnknown(result.audio_features?.peak_level)} />
-            <AudioField label="Dynamic Range" value={formatUnknown(result.audio_features?.dynamic_range_db, "dB")} />
-            <AudioField label="Zero Crossing Rate" value={formatUnknown(result.audio_features?.zero_crossing_rate)} />
-            <AudioField label="Crest Factor" value={formatUnknown(result.audio_features?.crest_factor)} />
-            <AudioField label="Repetition Score" value={formatUnknown(result.audio_features?.repetition_score)} />
-            <AudioField label="Spectral Flatness" value={formatUnknown(result.audio_features?.spectral_flatness)} />
-            <AudioField label="Dominant Frequency" value={formatUnknown(result.audio_features?.dominant_frequency_hz, "Hz")} />
-            <AudioField label="Spectral Centroid" value={formatUnknown(result.audio_features?.spectral_centroid_hz, "Hz")} />
-          </div>
-        </div>
-
-        <div className="fd-card p-4 space-y-4">
-          <div className="fd-section-title">Signal Exhibits</div>
-          {result.waveform_path ? (
-            <img
-              src={fixPath(result.waveform_path)}
-              alt="Waveform preview"
-              className="w-full rounded border border-slate-800 bg-slate-950"
-            />
-          ) : (
-            <div className="text-sm text-slate-400">No waveform preview available for this file.</div>
-          )}
-          {typeof result.audio_features?.spectrogram_path === "string" ? (
-            <img
-              src={fixPath(result.audio_features.spectrogram_path)}
-              alt="Spectrogram preview"
-              className="w-full rounded border border-slate-800 bg-slate-950"
-            />
-          ) : null}
-        </div>
-      </div>
+      <AudioEvidencePanel result={result} />
 
       {segmentSummary ? (
-        <div className="fd-card p-4 space-y-4">
-          <div className="fd-section-title">Segment Summary</div>
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 text-sm">
-            <SegmentField
+        <SectionCard title="Segment Summary">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <CompactField
               label="Segment Size"
-              value={formatUnknown(segmentSummary.segment_duration_seconds, "seconds")}
+              value={formatUnknown(
+                segmentSummary.segment_duration_seconds,
+                "seconds",
+              )}
               detail={`${formatUnknown(segmentSummary.segment_count)} segments`}
             />
-            <SegmentField
+            <CompactField
               label="RMS Variation"
               value={formatNestedStat(segmentSummary, "rms_level", "std")}
               detail={`Mean ${formatNestedStat(segmentSummary, "rms_level", "mean")}`}
             />
-            <SegmentField
+            <CompactField
               label="ZCR Variation"
-              value={formatNestedStat(segmentSummary, "zero_crossing_rate", "std")}
-              detail={`Mean ${formatNestedStat(segmentSummary, "zero_crossing_rate", "mean")}`}
+              value={formatNestedStat(
+                segmentSummary,
+                "zero_crossing_rate",
+                "std",
+              )}
+              detail={`Mean ${formatNestedStat(
+                segmentSummary,
+                "zero_crossing_rate",
+                "mean",
+              )}`}
             />
-            <SegmentField
+            <CompactField
               label="Flatness Variation"
-              value={formatNestedStat(segmentSummary, "spectral_flatness", "std")}
-              detail={`Mean ${formatNestedStat(segmentSummary, "spectral_flatness", "mean")}`}
+              value={formatNestedStat(
+                segmentSummary,
+                "spectral_flatness",
+                "std",
+              )}
+              detail={`Mean ${formatNestedStat(
+                segmentSummary,
+                "spectral_flatness",
+                "mean",
+              )}`}
             />
           </div>
-        </div>
+        </SectionCard>
       ) : null}
 
-      <div className="fd-card p-4 space-y-4">
-        <div className="fd-section-title">Analysis Diagnostics</div>
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 text-sm">
-          <SegmentField
+      <SectionCard title="Analysis Diagnostics">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <CompactField
             label="FFmpeg Available"
             value={formatUnknown(toolchain?.ffmpeg_available)}
             detail={formatUnknown(toolchain?.ffmpeg_resolved_path)}
+            mono
           />
-          <SegmentField
+          <CompactField
             label="Analysis Mode"
             value={formatUnknown(result.audio_features?.analysis_mode)}
             detail={
@@ -235,72 +330,35 @@ export const AudioDetailPage: React.FC = () => {
                 : "Direct analysis path"
             }
           />
-          <SegmentField
+          <CompactField
             label="Transcoded"
-            value={formatUnknown(result.audio_features?.transcoded_for_analysis)}
+            value={formatUnknown(
+              result.audio_features?.transcoded_for_analysis,
+            )}
           />
-          <SegmentField
+          <CompactField
             label="FFmpeg Error"
             value={formatUnknown(result.audio_features?.ffmpeg_transcode_error)}
+            mono
           />
         </div>
-      </div>
+      </SectionCard>
 
-      <div className="fd-card p-4 space-y-4">
-        <div className="fd-section-title">Analyst Findings</div>
+      <SectionCard title="Analyst Findings">
         <ul className="space-y-2 text-sm text-slate-300">
-          {(findings.length ? findings : ["No explicit findings recorded."]).map((item, index) => (
+          {(findings.length
+            ? findings
+            : ["No explicit findings recorded."]
+          ).map((item, index) => (
             <li
               key={`${item}-${index}`}
-              className="rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2"
+              className="rounded-xl border border-slate-800 bg-slate-950/60 px-3 py-2"
             >
               {item}
             </li>
           ))}
         </ul>
-      </div>
+      </SectionCard>
     </CasePageScaffold>
   );
-};
-
-const AudioField = ({ label, value }: { label: string; value: string }) => (
-  <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
-    <div className="text-xs uppercase tracking-wider text-slate-500">{label}</div>
-    <div className="mt-1 text-slate-200">{value}</div>
-  </div>
-);
-
-const SegmentField = ({
-  label,
-  value,
-  detail,
-}: {
-  label: string;
-  value: string;
-  detail?: string;
-}) => (
-  <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
-    <div className="text-xs uppercase tracking-wider text-slate-500">{label}</div>
-    <div className="mt-1 text-slate-200">{value}</div>
-    {detail ? <div className="mt-1 text-xs text-slate-500">{detail}</div> : null}
-  </div>
-);
-
-const formatUnknown = (value: unknown, suffix?: string) => {
-  if (typeof value === "number") return suffix ? `${value} ${suffix}` : String(value);
-  if (typeof value === "boolean") return value ? "Yes" : "No";
-  if (typeof value === "string" && value.trim()) return suffix ? `${value} ${suffix}` : value;
-  return "Unavailable";
-};
-
-const formatNestedStat = (
-  source: Record<string, unknown>,
-  key: string,
-  stat: string
-) => {
-  const nested =
-    typeof source[key] === "object" && source[key] !== null
-      ? (source[key] as Record<string, unknown>)
-      : null;
-  return formatUnknown(nested?.[stat]);
 };
