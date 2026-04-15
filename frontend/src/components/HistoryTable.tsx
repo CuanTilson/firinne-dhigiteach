@@ -1,14 +1,24 @@
 import React from "react";
 import type { AnalysisRecordSummary } from "../types";
 import { Badge } from "./ui/Badge";
-import { Eye, Trash2, Calendar, Film, Printer, AudioWaveform } from "lucide-react";
+import {
+  Eye,
+  Trash2,
+  Calendar,
+  Film,
+  Printer,
+  AudioWaveform,
+} from "lucide-react";
 import { API_BASE_URL } from "../constants";
 import { Link } from "react-router-dom";
 
 interface Props {
   records: AnalysisRecordSummary[];
   loading: boolean;
-  onDelete: (id: number, mediaType: AnalysisRecordSummary["media_type"]) => void;
+  onDelete: (
+    id: number,
+    mediaType: AnalysisRecordSummary["media_type"],
+  ) => void;
 }
 
 export const HistoryTable: React.FC<Props> = ({
@@ -52,14 +62,14 @@ export const HistoryTable: React.FC<Props> = ({
               record.media_type === "video"
                 ? `/videos/${record.id}`
                 : record.media_type === "audio"
-                ? `/audio/${record.id}`
-                : `/records/${record.id}`;
+                  ? `/audio/${record.id}`
+                  : `/records/${record.id}`;
             const printPath =
               record.media_type === "video"
                 ? `#/print/videos/${record.id}`
                 : record.media_type === "audio"
-                ? `#/print/audio/${record.id}`
-                : `#/print/records/${record.id}`;
+                  ? `#/print/audio/${record.id}`
+                  : `#/print/records/${record.id}`;
             return (
               <tr
                 key={record.id}
