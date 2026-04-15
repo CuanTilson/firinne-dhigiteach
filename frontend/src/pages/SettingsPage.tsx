@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { getSettings, updateSettings } from "../services/api";
-import type { SettingsSnapshot, SettingsUpdatePayload } from "../types";
+import type { SettingsSnapshot } from "../types";
 import { DEFAULT_ADMIN_KEY } from "../constants";
 import {
   AlertCircle,
@@ -10,9 +10,30 @@ import {
   Settings2,
 } from "lucide-react";
 
+type SettingsForm = {
+  pipeline: {
+    image_detector: string;
+  };
+  thresholds: {
+    classification_bands: {
+      ai_likely_min: number;
+      real_likely_max: number;
+    };
+    audio_classification_bands: {
+      ai_likely_min: number;
+      real_likely_max: number;
+    };
+    video_max_duration_seconds: number;
+    video_sample_frames: number;
+  };
+  paths: {
+    ffmpeg_path: string;
+  };
+};
+
 const buildFormFromSettings = (
   data: SettingsSnapshot,
-): SettingsUpdatePayload => ({
+): SettingsForm => ({
   pipeline: {
     image_detector: data.pipeline.image_detector,
   },
@@ -102,7 +123,7 @@ const FieldGroup = ({
 
 export const SettingsPage: React.FC = () => {
   const [settings, setSettings] = useState<SettingsSnapshot | null>(null);
-  const [form, setForm] = useState<SettingsUpdatePayload | null>(null);
+  const [form, setForm] = useState<SettingsForm | null>(null);
   const [loading, setLoading] = useState(true);
   const [pageError, setPageError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
