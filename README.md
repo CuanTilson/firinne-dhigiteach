@@ -172,18 +172,3 @@ If you clone the project fresh, initialize submodules first:
 ```powershell
 git submodule update --init --recursive
 ```
-
-## Documentation Map
-
-Start here for project docs:
-
-- `docs/README.md`
-
-High-value references:
-
-- `docs/project-status.md` - current project state
-- `docs/project-comprehensive-reference.md` - full project-wide technical and methodological reference
-- `docs/project-component-explainer.md` - presentation-ready explainer
-- `docs/model-and-forensics-study-guide.md` - study guide for models, forensics, and evaluation
-- `docs/Week 7/week7-final-method-summary.md` - final concise method summary
-- `docs/Week 7/week7-frozen-evidence-pack.md` - frozen dissertation/demo evidence pack
