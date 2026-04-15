@@ -8,7 +8,6 @@ import {
   RotateCcw,
   Save,
   Settings2,
-  ShieldCheck,
 } from "lucide-react";
 
 const buildFormFromSettings = (
