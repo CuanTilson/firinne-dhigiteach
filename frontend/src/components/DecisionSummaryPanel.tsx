@@ -18,34 +18,45 @@ export const DecisionSummaryPanel: React.FC<Props> = ({
   note,
 }) => {
   return (
-    <div className="fd-card p-5 space-y-4">
-      <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
-        <div>
-          <div className="fd-section-title">{title}</div>
-          <div className="mt-2 text-xl font-semibold text-slate-100">{verdict}</div>
-        </div>
-        {scoreLabel && scoreValue ? (
-          <div className="fd-panel px-4 py-3 min-w-[180px]">
-            <div className="text-xs uppercase tracking-wider text-slate-500">
-              {scoreLabel}
+    <div className="rounded-3xl border border-slate-800/80 bg-slate-950/55 p-5 shadow-[0_10px_30px_rgba(2,6,23,0.28)]">
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+          <div>
+            <div className="text-[11px] uppercase tracking-[0.2em] text-slate-500">
+              {title}
             </div>
-            <div className="mt-1 text-lg font-semibold text-slate-100">{scoreValue}</div>
+            <div className="mt-2 text-xl font-semibold text-slate-100">
+              {verdict}
+            </div>
           </div>
-        ) : null}
-      </div>
 
-      <div>
-        <div className="text-xs uppercase tracking-wider text-slate-500 mb-2">
-          Basis for Current Decision
+          {scoreLabel && scoreValue ? (
+            <div className="min-w-[180px] rounded-2xl border border-slate-800 bg-slate-950/70 px-4 py-3">
+              <div className="text-xs uppercase tracking-[0.16em] text-slate-500">
+                {scoreLabel}
+              </div>
+              <div className="mt-1 text-lg font-semibold text-slate-100">
+                {scoreValue}
+              </div>
+            </div>
+          ) : null}
         </div>
-        <ul className="space-y-2 text-sm text-slate-300">
-          {rationale.map((item, index) => (
-            <li key={`${item}-${index}`}>- {item}</li>
-          ))}
-        </ul>
-      </div>
 
-      {note ? <div className="text-sm text-slate-400">{note}</div> : null}
+        <div>
+          <div className="mb-2 text-xs uppercase tracking-[0.16em] text-slate-500">
+            Basis for Current Decision
+          </div>
+          <ul className="space-y-2 text-sm text-slate-300">
+            {rationale.map((item, index) => (
+              <li key={`${item}-${index}`} className="leading-6">
+                - {item}
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        {note ? <div className="text-sm text-slate-400">{note}</div> : null}
+      </div>
     </div>
   );
 };
