@@ -16,6 +16,126 @@ import { EvidenceStatusStrip } from "../components/EvidenceStatusStrip";
 import { AnalysisProvenancePanel } from "../components/AnalysisProvenancePanel";
 import { CasePageScaffold } from "../components/CasePageScaffold";
 
+type AudioValue = AudioAnalysisSummary["forensic_score"] | string | unknown;
+
+const asRecord = (value: unknown): Record<string, unknown> | null =>
+  value && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : null;
+
+const formatClassification = (value?: string | null) => {
+  if (!value) return "Unavailable";
+  return value
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+};
+
+const formatUnknown = (value: AudioValue, suffix?: string) => {
+  if (typeof value === "number") {
+    const formatted = Number.isInteger(value)
+      ? String(value)
+      : value.toFixed(3);
+    return suffix ? `${formatted} ${suffix}` : formatted;
+  }
+  if (typeof value === "boolean") {
+    return value ? "Yes" : "No";
+  }
+  if (typeof value === "string" && value.trim()) {
+    return suffix ? `${value} ${suffix}` : value;
+  }
+  return "Unavailable";
+};
+
+const formatNestedStat = (
+  source: Record<string, unknown>,
+  key: string,
+  stat: string,
+) => {
+  const nested = asRecord(source[key]);
+  return formatUnknown(nested?.[stat]);
+};
+
+const getClassificationTone = (
+  classification?: string | null,
+): "good" | "warn" | "neutral" => {
+  if (classification === "likely_real") return "good";
+  if (classification === "likely_ai_generated") return "warn";
+  return "neutral";
+};
+
+const getAudioTone = (
+  audio: VideoAnalysisDetail["audio_analysis"],
+): "good" | "warn" | "bad" => {
+  if (audio?.error) return "bad";
+  if (audio?.available) {
+    if (audio.classification === "likely_ai_generated") return "warn";
+    return "good";
+  }
+  return "warn";
+};
+
+const getAudioExtractionStep = (
+  audio: VideoAnalysisDetail["audio_analysis"],
+) => {
+  if (audio?.error) {
+    return {
+      label: "Audio extraction failed",
+      status: "complete" as const,
+    };
+  }
+
+  if (audio?.available) {
+    return {
+      label: "Audio extraction completed",
+      status: "complete" as const,
+    };
+  }
+
+  return {
+    label: "Audio extraction unavailable",
+    status: "complete" as const,
+  };
+};
+
+const AudioField = ({
+  label,
+  value,
+  mono = false,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+}) => (
+  <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
+    <div className="text-xs uppercase tracking-[0.16em] text-slate-500">
+      {label}
+    </div>
+    <div
+      className={`mt-1 text-slate-200 ${
+        mono ? "break-all font-mono text-[13px]" : ""
+      }`}
+    >
+      {value}
+    </div>
+  </div>
+);
+
+const SectionCard = ({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) => (
+  <div className="rounded-3xl border border-slate-800/80 bg-slate-950/55 p-4 shadow-[0_10px_30px_rgba(2,6,23,0.28)]">
+    <div className="mb-3 text-[11px] uppercase tracking-[0.2em] text-slate-500">
+      {title}
+    </div>
+    {children}
+  </div>
+);
+
 export const VideoDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const [result, setResult] = useState<VideoAnalysisDetail | null>(null);
@@ -25,7 +145,12 @@ export const VideoDetailPage: React.FC = () => {
 
   useEffect(() => {
     const fetchDetail = async () => {
-      if (!id) return;
+      if (!id) {
+        setError("No record id was provided.");
+        setLoading(false);
+        return;
+      }
+
       try {
         const data = await getVideoById(Number(id));
         setResult(data);
@@ -35,6 +160,7 @@ export const VideoDetailPage: React.FC = () => {
         setLoading(false);
       }
     };
+
     fetchDetail();
   }, [id]);
 
@@ -45,60 +171,57 @@ export const VideoDetailPage: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center text-slate-400">
-        Loading video analysis #{id}...
+      <div className="mx-auto max-w-7xl px-4 py-8 md:px-6">
+        <div className="rounded-3xl border border-slate-800/80 bg-slate-950/55 px-6 py-12 text-center text-slate-400">
+          Loading video analysis #{id}...
+        </div>
       </div>
     );
   }
 
   if (error || !result) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center text-red-400 gap-4">
-        <p>{error || "Record not found"}</p>
-        <Link to="/history" className="text-cyan-400 hover:underline">
-          Back to History
-        </Link>
+      <div className="mx-auto max-w-7xl px-4 py-8 md:px-6">
+        <div className="rounded-3xl border border-red-500/20 bg-red-500/10 px-6 py-12 text-center">
+          <p className="text-red-300">{error || "Record not found."}</p>
+          <Link
+            to="/history"
+            className="mt-4 inline-flex text-cyan-300 underline-offset-4 hover:text-cyan-200 hover:underline"
+          >
+            Back to History
+          </Link>
+        </div>
       </div>
     );
   }
 
-  const hashes =
-    result.video_metadata && typeof result.video_metadata === "object"
-      ? (result.video_metadata as Record<string, unknown>)
-      : null;
-  const hashesBefore =
-    hashes && typeof hashes.hashes_before === "object"
-      ? (hashes.hashes_before as Record<string, string>)
-      : null;
-  const hashesAfter =
-    hashes && typeof hashes.hashes_after === "object"
-      ? (hashes.hashes_after as Record<string, string>)
-      : null;
-  const hashesCurrent =
-    hashes && typeof hashes.hashes === "object"
-      ? (hashes.hashes as Record<string, string>)
-      : null;
+  const videoMeta = asRecord(result.video_metadata);
+  const hashesBefore = asRecord(videoMeta?.hashes_before);
+  const hashesAfter = asRecord(videoMeta?.hashes_after);
+  const hashesCurrent = asRecord(videoMeta?.hashes);
+  const imageDetector = asRecord(videoMeta?.image_detector);
+
   const audio = result.audio_analysis ?? null;
-  const audioHashes =
-    audio?.file_integrity && typeof audio.file_integrity === "object"
-      ? audio.file_integrity
-      : null;
-  const audioMeta =
-    audio?.audio_metadata && typeof audio.audio_metadata === "object"
-      ? (audio.audio_metadata as Record<string, unknown>)
-      : null;
-  const audioFeatures =
-    audio?.audio_features && typeof audio.audio_features === "object"
-      ? (audio.audio_features as Record<string, unknown>)
-      : null;
-  const audioSegments =
-    audioFeatures && typeof audioFeatures.segment_summary === "object"
-      ? (audioFeatures.segment_summary as Record<string, unknown>)
-      : null;
-  const imageDetector =
-    hashes && typeof hashes.image_detector === "object"
-      ? (hashes.image_detector as Record<string, unknown>)
-      : null;
+  const audioIntegrity = asRecord(audio?.file_integrity);
+  const audioMeta = asRecord(audio?.audio_metadata);
+  const audioFeatures = asRecord(audio?.audio_features);
+  const audioSegments = asRecord(audioFeatures?.segment_summary);
+  const audioHashesBefore = asRecord(audioIntegrity?.hashes_before);
+  const audioHashesAfter = asRecord(audioIntegrity?.hashes_after);
+  const extractedAudioSha256 =
+    typeof audioHashesAfter?.sha256 === "string"
+      ? audioHashesAfter.sha256
+      : typeof audioHashesBefore?.sha256 === "string"
+        ? audioHashesBefore.sha256
+        : null;
+  const extractedAudioMd5 =
+    typeof audioHashesAfter?.md5 === "string"
+      ? audioHashesAfter.md5
+      : typeof audioHashesBefore?.md5 === "string"
+        ? audioHashesBefore.md5
+        : null;
+
+  const audioStep = getAudioExtractionStep(audio);
 
   return (
     <CasePageScaffold
@@ -112,12 +235,30 @@ export const VideoDetailPage: React.FC = () => {
           createdAt={result.created_at}
           printUrl={`#/print/videos/${id}`}
           hashes={{
-            sha256: hashesCurrent?.sha256,
-            md5: hashesCurrent?.md5,
-            sha256_before: hashesBefore?.sha256,
-            sha256_after: hashesAfter?.sha256,
-            md5_before: hashesBefore?.md5,
-            md5_after: hashesAfter?.md5,
+            sha256:
+              typeof hashesCurrent?.sha256 === "string"
+                ? hashesCurrent.sha256
+                : undefined,
+            md5:
+              typeof hashesCurrent?.md5 === "string"
+                ? hashesCurrent.md5
+                : undefined,
+            sha256_before:
+              typeof hashesBefore?.sha256 === "string"
+                ? hashesBefore.sha256
+                : undefined,
+            sha256_after:
+              typeof hashesAfter?.sha256 === "string"
+                ? hashesAfter.sha256
+                : undefined,
+            md5_before:
+              typeof hashesBefore?.md5 === "string"
+                ? hashesBefore.md5
+                : undefined,
+            md5_after:
+              typeof hashesAfter?.md5 === "string"
+                ? hashesAfter.md5
+                : undefined,
           }}
         />
       }
@@ -126,8 +267,8 @@ export const VideoDetailPage: React.FC = () => {
           items={[
             {
               label: "Visual Verdict",
-              status: result.classification,
-              tone: result.forensic_score >= 0.7 ? "warn" : "neutral",
+              status: formatClassification(result.classification),
+              tone: getClassificationTone(result.classification),
               detail: `Score ${result.forensic_score.toFixed(3)}`,
             },
             {
@@ -141,9 +282,9 @@ export const VideoDetailPage: React.FC = () => {
             {
               label: "Extracted Audio",
               status: audio?.available
-                ? audio.classification ?? "Available"
+                ? formatClassification(audio.classification)
                 : "Unavailable",
-              tone: audio?.error ? "bad" : audio?.available ? "good" : "warn",
+              tone: getAudioTone(audio),
               detail:
                 audio?.error ||
                 (typeof audio?.forensic_score === "number"
@@ -152,7 +293,9 @@ export const VideoDetailPage: React.FC = () => {
             },
             {
               label: "Video Integrity",
-              status: hashesCurrent?.sha256 ? "Hashes recorded" : "Hashes unavailable",
+              status: hashesCurrent?.sha256
+                ? "Hashes recorded"
+                : "Hashes unavailable",
               tone: hashesCurrent?.sha256 ? "good" : "warn",
               detail:
                 hashesBefore?.sha256 && hashesAfter?.sha256
@@ -165,13 +308,19 @@ export const VideoDetailPage: React.FC = () => {
       sidebar={
         <>
           <DecisionSummaryPanel
-            verdict={result.classification}
+            verdict={formatClassification(result.classification)}
             scoreLabel="Visual Aggregate Score"
             scoreValue={result.forensic_score.toFixed(3)}
             rationale={[
               `Frame count analysed: ${result.frame_count}`,
-              `Selected frame score: ${selectedFrame ? selectedFrame.forensic_score.toFixed(3) : "Unavailable"}`,
-              `Extracted audio classification: ${audio?.classification ?? "Unavailable"}`,
+              `Selected frame score: ${
+                selectedFrame
+                  ? selectedFrame.forensic_score.toFixed(3)
+                  : "Unavailable"
+              }`,
+              `Extracted audio classification: ${formatClassification(
+                audio?.classification,
+              )}`,
               `Extracted audio score: ${
                 typeof audio?.forensic_score === "number"
                   ? audio.forensic_score.toFixed(3)
@@ -180,138 +329,222 @@ export const VideoDetailPage: React.FC = () => {
             ]}
             note="Current video decisions are based on sampled frame analysis, with extracted audio triage shown as a parallel evidence stream."
           />
+
           <AnalysisProvenancePanel
             detector={imageDetector}
             fusionMode="rule_based_forensic_fusion"
           />
+
           <ChainOfCustody
             steps={[
-              { label: "Upload received", timestamp: result.created_at, status: "complete" },
-              { label: "Frame sampling completed", timestamp: result.created_at, status: "complete" },
               {
-                label: audio?.available ? "Audio extraction completed" : "Audio extraction attempted",
+                label: "Upload received",
                 timestamp: result.created_at,
-                status: audio?.available ? "complete" : "pending",
+                status: "complete",
               },
-              { label: "Analysis completed", timestamp: result.created_at, status: "complete" },
+              {
+                label: "Frame sampling completed",
+                timestamp: result.created_at,
+                status: "complete",
+              },
+              {
+                label: audioStep.label,
+                timestamp: result.created_at,
+                status: audioStep.status,
+              },
+              {
+                label: "Analysis completed",
+                timestamp: result.created_at,
+                status: "complete",
+              },
             ]}
           />
+
           <AppliedSettingsPanel settings={result.applied_settings} />
         </>
       }
     >
-      <div className="fd-card p-4">
-        <div className="fd-section-title mb-3">Frame Strip</div>
-        <div className="flex gap-3 overflow-x-auto pb-2">
-          {result.frames.map((frame, idx) => (
-            <button
-              key={`${frame.frame_index}-${idx}`}
-              onClick={() => setSelectedIndex(idx)}
-              className={`min-w-[160px] text-left flex flex-col gap-2 p-2 rounded-lg border transition-colors ${
-                selectedIndex === idx
-                  ? "border-cyan-400/50 bg-cyan-900/20"
-                  : "border-slate-800 hover:bg-slate-900/60"
-              }`}
-            >
-              <div className="h-24 w-full bg-slate-950 rounded overflow-hidden border border-slate-800">
-                <img
-                  src={fixPath(frame.saved_path)}
-                  alt={`Frame ${frame.frame_index}`}
-                  className="h-full w-full object-cover"
-                />
-              </div>
-              <div className="text-xs text-slate-300">
-                <div>Frame {frame.frame_index}</div>
-                <div className="text-slate-500">{frame.timestamp_sec.toFixed(2)}s</div>
-                <div className="text-slate-400">Score {frame.forensic_score.toFixed(2)}</div>
-              </div>
-            </button>
-          ))}
-        </div>
-      </div>
+      <SectionCard title="Frame Strip">
+        {result.frames?.length ? (
+          <div className="flex gap-3 overflow-x-auto pb-2">
+            {result.frames.map((frame, idx) => (
+              <button
+                key={`${frame.frame_index}-${idx}`}
+                type="button"
+                onClick={() => setSelectedIndex(idx)}
+                className={`min-w-[160px] rounded-2xl border p-2 text-left transition ${
+                  selectedIndex === idx
+                    ? "border-cyan-400/50 bg-cyan-900/20"
+                    : "border-slate-800 hover:bg-slate-900/60"
+                }`}
+              >
+                <div className="h-24 w-full overflow-hidden rounded-xl border border-slate-800 bg-slate-950">
+                  <img
+                    src={fixPath(frame.saved_path)}
+                    alt={`Frame ${frame.frame_index}`}
+                    className="h-full w-full object-cover"
+                  />
+                </div>
 
-      <div className="fd-card p-4">
-        <div className="fd-section-title mb-3">Selected Frame Analysis</div>
+                <div className="mt-2 text-xs text-slate-300">
+                  <div>Frame {frame.frame_index}</div>
+                  <div className="text-slate-500">
+                    {frame.timestamp_sec.toFixed(2)}s
+                  </div>
+                  <div className="text-slate-400">
+                    Score {frame.forensic_score.toFixed(3)}
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="text-slate-400">
+            No sampled frames were stored for this case.
+          </div>
+        )}
+      </SectionCard>
+
+      <SectionCard title="Selected Frame Analysis">
         {selectedFrame ? (
           <AnalysisDashboard result={selectedFrame} />
         ) : (
-          <div className="text-slate-400">No frames available for analysis.</div>
+          <div className="text-slate-400">
+            No frames available for analysis.
+          </div>
         )}
-      </div>
+      </SectionCard>
 
-      <div className="fd-card p-4">
-        <div className="fd-section-title mb-3">Extracted Audio Evidence</div>
+      <SectionCard title="Extracted Audio Evidence">
         {!audio ? (
           <div className="text-sm text-slate-400">
             No extracted-audio analysis was stored for this case.
           </div>
         ) : (
-          <div className="grid grid-cols-1 xl:grid-cols-[1.05fr_0.95fr] gap-6">
+          <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.05fr_0.95fr]">
             <div className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                <AudioField label="Available" value={audio.available ? "Yes" : "No"} />
-                <AudioField label="Classification" value={audio.classification ?? "Unavailable"} />
-                <AudioField
-                  label="Forensic score"
-                  value={
-                    typeof audio.forensic_score === "number"
-                      ? audio.forensic_score.toFixed(3)
-                      : "Unavailable"
-                  }
-                />
-                <AudioField
-                  label="Hashes match"
-                  value={
-                    typeof audioHashes?.hashes_match === "boolean"
-                      ? audioHashes.hashes_match
-                        ? "Yes"
-                        : "No"
-                      : "Unavailable"
-                  }
-                />
-                <AudioField label="Analysis mode" value={formatUnknown(audioFeatures?.analysis_mode)} />
-                <AudioField label="Duration" value={formatUnknown(audioMeta?.duration_seconds, "seconds")} />
-                <AudioField label="Sample rate" value={formatUnknown(audioMeta?.sample_rate_hz, "Hz")} />
-                <AudioField label="Channels" value={formatUnknown(audioMeta?.channels)} />
-                <AudioField label="Bit depth" value={formatUnknown(audioMeta?.sample_width_bits, "bits")} />
-                <AudioField label="Peak level" value={formatUnknown(audioFeatures?.peak_level)} />
-                <AudioField label="Dynamic range" value={formatUnknown(audioFeatures?.dynamic_range_db, "dB")} />
-                <AudioField label="Clipping ratio" value={formatUnknown(audioFeatures?.clipping_ratio)} />
-                <AudioField label="Zero crossing rate" value={formatUnknown(audioFeatures?.zero_crossing_rate)} />
-                <AudioField label="Repetition score" value={formatUnknown(audioFeatures?.repetition_score)} />
-                <AudioField label="Spectral flatness" value={formatUnknown(audioFeatures?.spectral_flatness)} />
-                <AudioField label="Transcoded" value={formatUnknown(audioFeatures?.transcoded_for_analysis)} />
-                <AudioField label="FFmpeg Error" value={formatUnknown(audioFeatures?.ffmpeg_transcode_error)} />
+              <div>
+                <div className="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                  Summary
+                </div>
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <AudioField
+                    label="Available"
+                    value={audio.available ? "Yes" : "No"}
+                  />
+                  <AudioField
+                    label="Classification"
+                    value={formatClassification(audio.classification)}
+                  />
+                  <AudioField
+                    label="Forensic Score"
+                    value={
+                      typeof audio.forensic_score === "number"
+                        ? audio.forensic_score.toFixed(3)
+                        : "Unavailable"
+                    }
+                  />
+                  <AudioField
+                    label="Hashes Match"
+                    value={
+                      typeof audioIntegrity?.hashes_match === "boolean"
+                        ? audioIntegrity.hashes_match
+                          ? "Yes"
+                          : "No"
+                        : "Unavailable"
+                    }
+                  />
+                </div>
+              </div>
+
+              <div>
+                <div className="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                  Signal Features
+                </div>
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <AudioField
+                    label="Analysis Mode"
+                    value={formatUnknown(audioFeatures?.analysis_mode)}
+                  />
+                  <AudioField
+                    label="Duration"
+                    value={formatUnknown(
+                      audioMeta?.duration_seconds,
+                      "seconds",
+                    )}
+                  />
+                  <AudioField
+                    label="Sample Rate"
+                    value={formatUnknown(audioMeta?.sample_rate_hz, "Hz")}
+                  />
+                  <AudioField
+                    label="Channels"
+                    value={formatUnknown(audioMeta?.channels)}
+                  />
+                  <AudioField
+                    label="Bit Depth"
+                    value={formatUnknown(audioMeta?.sample_width_bits, "bits")}
+                  />
+                  <AudioField
+                    label="Peak Level"
+                    value={formatUnknown(audioFeatures?.peak_level)}
+                  />
+                  <AudioField
+                    label="Dynamic Range"
+                    value={formatUnknown(audioFeatures?.dynamic_range_db, "dB")}
+                  />
+                  <AudioField
+                    label="Clipping Ratio"
+                    value={formatUnknown(audioFeatures?.clipping_ratio)}
+                  />
+                  <AudioField
+                    label="Zero Crossing Rate"
+                    value={formatUnknown(audioFeatures?.zero_crossing_rate)}
+                  />
+                  <AudioField
+                    label="Repetition Score"
+                    value={formatUnknown(audioFeatures?.repetition_score)}
+                  />
+                  <AudioField
+                    label="Spectral Flatness"
+                    value={formatUnknown(audioFeatures?.spectral_flatness)}
+                  />
+                  <AudioField
+                    label="Transcoded"
+                    value={formatUnknown(
+                      audioFeatures?.transcoded_for_analysis,
+                    )}
+                  />
+                  <AudioField
+                    label="FFmpeg Error"
+                    value={formatUnknown(audioFeatures?.ffmpeg_transcode_error)}
+                    mono
+                  />
+                </div>
               </div>
 
               {audio.error ? (
-                <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
+                <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
                   {audio.error}
                 </div>
               ) : null}
 
-              {(audioHashes?.hashes_after?.sha256 || audioHashes?.hashes_before?.sha256) && (
-                <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3 text-xs">
-                  <div className="text-slate-500 uppercase tracking-wider mb-2">
-                    Extracted Audio Hashes
+              {extractedAudioSha256 && (
+                <div>
+                  <div className="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                    Integrity
                   </div>
-                  <div className="space-y-2 text-slate-300">
-                    <div>
-                      <div className="text-slate-500">SHA-256</div>
-                      <div className="font-mono break-all">
-                        {audioHashes?.hashes_after?.sha256 ||
-                          audioHashes?.hashes_before?.sha256 ||
-                          "Unavailable"}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-slate-500">MD5</div>
-                      <div className="font-mono break-all">
-                        {audioHashes?.hashes_after?.md5 ||
-                          audioHashes?.hashes_before?.md5 ||
-                          "Unavailable"}
-                      </div>
-                    </div>
+                  <div className="grid grid-cols-1 gap-4">
+                    <AudioField
+                      label="Extracted Audio SHA-256"
+                      value={extractedAudioSha256}
+                      mono
+                    />
+                    <AudioField
+                      label="Extracted Audio MD5"
+                      value={formatUnknown(extractedAudioMd5)}
+                      mono
+                    />
                   </div>
                 </div>
               )}
@@ -319,8 +552,8 @@ export const VideoDetailPage: React.FC = () => {
 
             <div className="space-y-4">
               {audio.waveform_path ? (
-                <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
-                  <div className="text-xs uppercase tracking-wider text-slate-500 mb-2">
+                <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
+                  <div className="mb-2 text-xs uppercase tracking-[0.16em] text-slate-500">
                     Waveform Preview
                   </div>
                   <img
@@ -332,12 +565,12 @@ export const VideoDetailPage: React.FC = () => {
               ) : null}
 
               {typeof audioFeatures?.spectrogram_path === "string" ? (
-                <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
-                  <div className="text-xs uppercase tracking-wider text-slate-500 mb-2">
+                <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
+                  <div className="mb-2 text-xs uppercase tracking-[0.16em] text-slate-500">
                     Spectrogram Preview
                   </div>
                   <img
-                    src={fixPath(audioFeatures.spectrogram_path as string)}
+                    src={fixPath(audioFeatures.spectrogram_path)}
                     alt="Extracted audio spectrogram"
                     className="w-full rounded border border-slate-800 bg-slate-900"
                   />
@@ -345,74 +578,54 @@ export const VideoDetailPage: React.FC = () => {
               ) : null}
 
               {audioSegments ? (
-                <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
-                  <div className="text-xs uppercase tracking-wider text-slate-500 mb-2">
+                <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
+                  <div className="mb-3 text-xs uppercase tracking-[0.16em] text-slate-500">
                     Segmented Signal Summary
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm text-slate-300">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <AudioField
-                      label="Segment size"
-                      value={formatUnknown(audioSegments.segment_duration_seconds, "seconds")}
+                      label="Segment Size"
+                      value={formatUnknown(
+                        audioSegments.segment_duration_seconds,
+                        "seconds",
+                      )}
                     />
                     <AudioField
-                      label="Segment count"
+                      label="Segment Count"
                       value={formatUnknown(audioSegments.segment_count)}
                     />
                     <AudioField
-                      label="RMS std"
-                      value={formatNestedStat(audioSegments, "rms_level", "std")}
+                      label="RMS Std"
+                      value={formatNestedStat(
+                        audioSegments,
+                        "rms_level",
+                        "std",
+                      )}
                     />
                     <AudioField
-                      label="ZCR std"
-                      value={formatNestedStat(audioSegments, "zero_crossing_rate", "std")}
+                      label="ZCR Std"
+                      value={formatNestedStat(
+                        audioSegments,
+                        "zero_crossing_rate",
+                        "std",
+                      )}
                     />
                   </div>
                 </div>
               ) : null}
 
-              <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
-                <div className="text-xs uppercase tracking-wider text-slate-500 mb-2">
+              <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
+                <div className="mb-2 text-xs uppercase tracking-[0.16em] text-slate-500">
                   Audio Metadata
                 </div>
-                <pre className="text-xs text-slate-300 whitespace-pre-wrap break-words">
+                <pre className="max-h-[26rem] overflow-auto whitespace-pre-wrap break-words rounded-xl border border-slate-800 bg-slate-950/70 p-3 text-xs text-slate-300">
                   {JSON.stringify(audioMeta ?? {}, null, 2)}
                 </pre>
               </div>
             </div>
           </div>
         )}
-      </div>
+      </SectionCard>
     </CasePageScaffold>
   );
 };
-
-const AudioField = ({ label, value }: { label: string; value: string }) => (
-  <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
-    <div className="text-xs uppercase tracking-wider text-slate-500">{label}</div>
-    <div className="mt-1 text-slate-200">{value}</div>
-  </div>
-);
-
-const formatUnknown = (value: AudioValue, suffix?: string) => {
-  if (typeof value === "number") {
-    return suffix ? `${value} ${suffix}` : String(value);
-  }
-  if (typeof value === "string" && value.trim()) {
-    return suffix ? `${value} ${suffix}` : value;
-  }
-  return "Unavailable";
-};
-
-const formatNestedStat = (
-  source: Record<string, unknown>,
-  key: string,
-  stat: string
-) => {
-  const nested =
-    typeof source[key] === "object" && source[key] !== null
-      ? (source[key] as Record<string, unknown>)
-      : null;
-  return formatUnknown(nested?.[stat]);
-};
-
-type AudioValue = AudioAnalysisSummary["forensic_score"] | string | unknown;
