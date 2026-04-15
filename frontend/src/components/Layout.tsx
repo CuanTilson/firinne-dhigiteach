@@ -138,7 +138,7 @@ export const Layout: React.FC = () => {
               Forensic Suite
             </div>
             <span className="font-semibold text-lg tracking-wide text-slate-100 fd-title">
-              Firinne Dhigiteach
+              Fírinne Dhigiteach
             </span>
           </div>
         </div>
